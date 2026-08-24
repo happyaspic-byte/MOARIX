@@ -172,7 +172,7 @@ textarea { min-height: 88px; resize: vertical; }
 .company-chip { display: flex; min-width: 0; align-items: center; gap: 8px; margin: 0 6px 19px; border: 1px solid #cde3dd; border-radius: 9px; padding: 9px 10px; background: #f1f9f7; color: var(--primary-dark); font-size: .74rem; font-weight: 700; }
 .company-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nav-group { margin-bottom: 15px; }
-.nav-group > p { margin: 0 0 5px; padding: 0 10px; color: #94a29e; font-size: .64rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+.nav-group > p { margin: 0 0 5px; padding: 0 10px; color: var(--ink-faint); font-size: .64rem; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
 .nav-group a { display: flex; align-items: center; gap: 10px; min-height: 37px; margin: 2px 0; border-radius: 8px; padding: 8px 10px; color: #566560; font-size: .8rem; font-weight: 650; }
 .nav-group a:hover { background: var(--surface-soft); color: var(--ink); }
 .nav-group a.active { background: var(--primary-soft); color: var(--primary-dark); font-weight: 800; }
