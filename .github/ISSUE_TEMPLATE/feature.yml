@@ -1,0 +1,38 @@
+name: 기능 제안
+description: 새로운 ERP 흐름이나 개선 사항을 제안합니다.
+title: "[Feature] "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 해결하려는 업무 문제
+    validations:
+      required: true
+  - type: textarea
+    id: workflow
+    attributes:
+      label: 원하는 업무 흐름
+      description: 입력, 승인, 결과와 필요한 역할을 적어 주세요.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 완료 기준
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: 영역
+      options:
+        - 기준정보
+        - 영업·구매 문서
+        - 재고
+        - 고객 자산·서비스
+        - 보고서
+        - 사용자·권한
+        - 연동·운영
+    validations:
+      required: true

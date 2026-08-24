@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 보안 취약점 비공개 제보
+    url: https://github.com/happyaspic-byte/MOARIX/security/advisories/new
+    about: 공개 이슈 대신 GitHub Security Advisory를 사용해 주세요.

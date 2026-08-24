@@ -1,0 +1,26 @@
+# dependencies
+/node_modules
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# local database and test artifacts
+/.data/
+/coverage/
+/test-results/
+/playwright-report/
+
+# local environment (keep the example committed)
+.env
+.env.local
+.env.*.local
+
+# logs and editor files
+*.log
+.DS_Store
+*.tsbuildinfo
+

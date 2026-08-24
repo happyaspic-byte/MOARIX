@@ -1,0 +1,46 @@
+name: 버그 보고
+description: 재현 가능한 오류나 데이터 불일치를 보고합니다.
+title: "[Bug] "
+labels: [bug]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: 현상
+      description: 기대한 결과와 실제 결과를 함께 적어 주세요.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: 재현 절차
+      placeholder: |
+        1. 로그인
+        2. 메뉴 이동
+        3. 작업 수행
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: 실행 환경
+      placeholder: 브라우저, 배포 버전, 데이터베이스 드라이버
+    validations:
+      required: true
+  - type: dropdown
+    id: data_impact
+    attributes:
+      label: 데이터 영향
+      options:
+        - 없음
+        - 조회 오류
+        - 저장 실패
+        - 잘못된 저장 가능성
+        - 보안 또는 테넌트 격리 우려
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 로그 또는 화면
+      description: 비밀번호, 세션 토큰, 개인정보는 반드시 제거해 주세요.

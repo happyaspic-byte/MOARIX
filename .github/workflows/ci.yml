@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DATABASE_DRIVER: local
+      LOCAL_DATABASE_PATH: /tmp/moarix-ci-${{ github.run_id }}/pglite
+      SESSION_SECRET: ci-only-session-secret-with-at-least-32-characters
+      COOKIE_SECURE: "false"
+      SEED_DEMO_EMAIL: admin@moarix.local
+      SEED_DEMO_PASSWORD: Moarix-CI-Password-42!
+      SMOKE_PASSWORD: Moarix-CI-Password-42!
+      E2E_PASSWORD: Moarix-CI-Password-42!
+      NEXT_TELEMETRY_DISABLED: "1"
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type-check
+        run: npm run typecheck
+
+      - name: Run unit tests with coverage
+        run: npm run test:coverage
+
+      - name: Prepare database
+        run: npm run db:setup
+
+      - name: Build production bundle
+        run: npm run build
+
+      - name: Run domain and HTTP smoke tests
+        run: npm run smoke
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run browser tests
+        run: npm run test:e2e
+
+      - name: Validate container image
+        run: docker build -t moarix:ci .
+
+      - name: Upload browser failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report
+            test-results
+          if-no-files-found: ignore
+          retention-days: 7
