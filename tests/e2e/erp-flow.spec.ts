@@ -121,7 +121,7 @@ test("validates the seeded Stratus asset 360 workspace and risk-first queue", as
   const assetId = assetPath.split("/").at(-1)!;
   await expect(page).toHaveTitle("Stratus 자산 상세 | MOARIX");
   await expect(page.getByRole("heading", { level: 1, name: "everRun Enterprise 이중화 시스템" })).toBeVisible();
-  await expect(page.getByText("합성 생산 실행 시스템", { exact: true })).toBeVisible();
+  await expect(page.locator(".asset-hero-main")).toContainText("합성 생산 실행 시스템");
 
   const tabs = page.getByRole("navigation", { name: "자산 상세 메뉴" });
   await expect(tabs.getByRole("link", { name: "개요" })).toHaveAttribute("aria-current", "page");
