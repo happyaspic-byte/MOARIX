@@ -118,8 +118,9 @@ test("connects a customer site, Stratus asset and inspection", async ({ page }) 
   await drawer.getByLabel("제품명 *").fill("everRun 운영 검증 시스템");
   await drawer.getByLabel("계약 상태 *").selectOption("not_contracted");
   await drawer.getByRole("button", { name: "자산 등록" }).click();
-  await expect(page.locator(".data-table").getByText(vendorAssetId)).toBeVisible();
-  await expect(page.locator(".data-table").getByText("미계약")).toBeVisible();
+  const assetRow = page.locator(".data-table tbody tr").filter({ hasText: vendorAssetId });
+  await expect(assetRow.getByText(vendorAssetId)).toBeVisible();
+  await expect(assetRow.locator(".status-not_contracted")).toHaveText("미계약");
 
   await page.goto("/inspections");
   await page.locator("summary", { hasText: "점검 예약" }).click();

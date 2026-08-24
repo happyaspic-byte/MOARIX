@@ -40,12 +40,12 @@ try {
     const existing = await database.query("SELECT 1 FROM pg_roles WHERE rolname = $1", [appUser]);
     const roleStatement = await database.query(
       `SELECT format(
-         CASE WHEN $3 THEN
+         CASE WHEN $3::boolean THEN
            'ALTER ROLE %I WITH LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS'
          ELSE
            'CREATE ROLE %I WITH LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS'
          END,
-         $1, $2
+         $1::text, $2::text
        ) AS sql`,
       [appUser, appPassword, existing.rows.length > 0],
     );
@@ -53,12 +53,12 @@ try {
 
     const grants = await database.query(
       `SELECT ARRAY[
-         format('GRANT CONNECT ON DATABASE %I TO %I', current_database(), $1),
-         format('GRANT USAGE ON SCHEMA public TO %I', $1),
-         format('GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO %I', $1),
-         format('GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO %I', $1),
-         format('ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO %I', $1),
-         format('ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO %I', $1)
+         format('GRANT CONNECT ON DATABASE %I TO %I', current_database(), $1::text),
+         format('GRANT USAGE ON SCHEMA public TO %I', $1::text),
+         format('GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO %I', $1::text),
+         format('GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO %I', $1::text),
+         format('ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO %I', $1::text),
+         format('ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO %I', $1::text)
        ] AS statements`,
       [appUser],
     );
