@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useEffect, useRef, useState } from "react";
+import { DrawerCloseButton } from "@/components/drawer-close-button";
 import { FormMessage, initialFormState } from "@/components/form-message";
 import { SubmitButton } from "@/components/submit-button";
 import { addServiceCaseActivityAction } from "./actions";
@@ -15,6 +16,7 @@ export function CaseActivityForm({ caseId }: { caseId: string }) {
   }, [state]);
 
   return <form ref={formRef} action={action} className="form-grid case-entry-form">
+    <div className="popover-head full"><strong>케이스 활동 기록</strong><DrawerCloseButton /></div>
     <input type="hidden" name="caseId" value={caseId} />
     <label><span>활동 유형 *</span><select name="kind" value={kind} onChange={(event) => setKind(event.target.value)}><option value="comment">담당자 댓글</option><option value="internal_note">내부 작업 메모</option><option value="vendor_reply">지원사 회신</option><option value="customer_reply">고객 회신</option></select></label>
     {external ? <label><span>외부 작성자 *</span><input name="authorName" maxLength={120} required placeholder="이름 또는 지원팀" /></label> : <div />}

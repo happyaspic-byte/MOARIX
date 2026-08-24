@@ -266,7 +266,7 @@ async function exerciseHttp(token: string, serviceCaseId: string) {
       ["/documents/quote", "견적"],
       ["/inventory", "재고·원장"],
       ["/sites", "고객 사업장"],
-      ["/assets", "자산·지원 계약"],
+      ["/assets", "Stratus 자산 운영"],
       ["/inspections", "정기점검"],
       ["/service", "서비스 케이스"],
       [`/service/${serviceCaseId}`, "서비스 케이스 상세"],

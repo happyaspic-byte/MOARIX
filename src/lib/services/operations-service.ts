@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { SessionContext } from "@/lib/auth/repository";
+import { dateInTimeZone } from "@/lib/domain/company-date";
 import { assertInspectionTransition, type InspectionStatus } from "@/lib/domain/inspection-state";
 import { withCompany, type TransactionClient } from "@/lib/db/client";
 import { writeAudit } from "./audit";
@@ -144,8 +145,8 @@ export function listInspections(companyId: string) {
   });
 }
 
-async function nextOperationNumber(tx: TransactionClient, companyId: string, kind: string, prefix: string) {
-  const counterKind = `${kind}:${new Date().getFullYear()}`;
+async function nextOperationNumber(tx: TransactionClient, companyId: string, kind: string, prefix: string, year: string) {
+  const counterKind = `${kind}:${year}`;
   await tx.query(
     `INSERT INTO document_counters (company_id, kind, next_value)
      VALUES ($1, $2, 1)
@@ -158,20 +159,53 @@ async function nextOperationNumber(tx: TransactionClient, companyId: string, kin
      RETURNING (next_value - 1)::text AS value`,
     [companyId, counterKind],
   );
-  return `${prefix}-${new Date().getFullYear()}-${String(Number(result.rows[0]?.value ?? 1)).padStart(5, "0")}`;
+  return `${prefix}-${year}-${String(Number(result.rows[0]?.value ?? 1)).padStart(5, "0")}`;
+}
+
+async function refreshAssetNextInspectionDate(
+  tx: TransactionClient,
+  assetId: string,
+) {
+  await tx.query(
+    `UPDATE assets
+     SET next_inspection_date = (
+       SELECT MIN(candidate_date)
+       FROM (
+         SELECT scheduled_date AS candidate_date
+         FROM maintenance_inspections
+         WHERE asset_id = $1 AND status IN ('scheduled', 'in_progress', 'issue_found')
+         UNION ALL
+         SELECT next_inspection_date AS candidate_date
+         FROM maintenance_inspections
+         WHERE asset_id = $1
+           AND status IN ('completed', 'issue_found')
+           AND next_inspection_date >= moarix_company_today()
+       ) candidates
+     )
+     WHERE id = $1`,
+    [assetId],
+  );
 }
 
 export function createInspection(session: SessionContext, input: InspectionInput) {
   const id = randomUUID();
   return withCompany(session.companyId, async (tx) => {
     const assetResult = await tx.query<{ site_id: string | null; asset_tag: string }>(
-      "SELECT site_id, asset_tag FROM assets WHERE id = $1 AND status <> 'retired'",
+      `SELECT asset.site_id, asset.asset_tag
+       FROM assets asset
+       JOIN customer_sites site
+         ON site.company_id = asset.company_id AND site.id = asset.site_id AND site.is_active = true
+       JOIN counterparties customer
+         ON customer.company_id = asset.company_id AND customer.id = asset.counterparty_id AND customer.is_active = true
+       WHERE asset.id = $1 AND asset.status <> 'retired'
+       FOR UPDATE OF asset`,
       [input.assetId],
     );
     const asset = assetResult.rows[0];
     if (!asset) throw new Error("Asset not found");
     if (!asset.site_id) throw new Error("Asset site is required");
-    const number = await nextOperationNumber(tx, session.companyId, "inspection", "INSP");
+    const year = dateInTimeZone(session.companyTimezone).slice(0, 4);
+    const number = await nextOperationNumber(tx, session.companyId, "inspection", "INSP", year);
     await tx.query(
       `INSERT INTO maintenance_inspections
          (id, company_id, number, asset_id, site_id, inspection_type, scheduled_date,
@@ -179,7 +213,23 @@ export function createInspection(session: SessionContext, input: InspectionInput
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $8)`,
       [id, session.companyId, number, input.assetId, asset.site_id, input.inspectionType, input.scheduledDate, session.userId, input.reportReference || null],
     );
-    await tx.query("UPDATE assets SET next_inspection_date = $1 WHERE id = $2", [input.scheduledDate, input.assetId]);
+    const defaultChecks = [
+      ["protection", "Protection 상태", 1],
+      ["sync", "동기화 상태", 2],
+      ["service", "서비스 상태", 3],
+      ["cpu", "CPU 사용률", 4],
+      ["memory", "메모리 사용률", 5],
+      ["disk", "디스크 사용률", 6],
+    ] as const;
+    for (const [itemKey, label, position] of defaultChecks) {
+      await tx.query(
+        `INSERT INTO inspection_check_items
+           (id, company_id, inspection_id, item_key, category, label, position)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [randomUUID(), session.companyId, id, itemKey, itemKey === "cpu" || itemKey === "memory" || itemKey === "disk" ? "resources" : "availability", label, position],
+      );
+    }
+    await refreshAssetNextInspectionDate(tx, input.assetId);
     await writeAudit(tx, {
       companyId: session.companyId,
       actorUserId: session.userId,
@@ -195,6 +245,11 @@ export function createInspection(session: SessionContext, input: InspectionInput
 
 function nullableMetric(value: number | "" | undefined) {
   return value === "" || value === undefined ? null : value;
+}
+
+function metricCheck(value: number | "" | undefined) {
+  if (value === "" || value === undefined) return { result: "na", value: null };
+  return { result: value >= 95 ? "fail" : value >= 80 ? "warning" : "pass", value: `${value}%` };
 }
 
 export function transitionInspection(session: SessionContext, input: InspectionResultInput) {
@@ -215,6 +270,28 @@ export function transitionInspection(session: SessionContext, input: InspectionR
       throw new Error("Inspection findings are required");
     }
 
+    if (finishing) {
+      const cpuCheck = metricCheck(input.cpuPercent);
+      const memoryCheck = metricCheck(input.memoryPercent);
+      const diskCheck = metricCheck(input.diskPercent);
+      const checks = [
+        { key: "protection", result: input.protectionStatus ?? "na", value: null },
+        { key: "sync", result: input.syncStatus ?? "na", value: null },
+        { key: "service", result: input.serviceStatus ?? "na", value: null },
+        { key: "cpu", ...cpuCheck },
+        { key: "memory", ...memoryCheck },
+        { key: "disk", ...diskCheck },
+      ];
+      for (const check of checks) {
+        await tx.query(
+          `UPDATE inspection_check_items
+           SET result = $3, observed_value = $4
+           WHERE inspection_id = $1 AND item_key = $2`,
+          [input.inspectionId, check.key, check.result, check.value],
+        );
+      }
+    }
+
     await tx.query(
       `UPDATE maintenance_inspections
        SET status = $2,
@@ -225,18 +302,16 @@ export function transitionInspection(session: SessionContext, input: InspectionR
            protection_status = COALESCE($4, protection_status),
            sync_status = COALESCE($5, sync_status),
            service_status = COALESCE($6, service_status),
-           cpu_percent = COALESCE($7, cpu_percent),
-           memory_percent = COALESCE($8, memory_percent),
-           disk_percent = COALESCE($9, disk_percent),
+           cpu_percent = CASE WHEN $2 IN ('completed', 'issue_found') THEN $7 ELSE cpu_percent END,
+           memory_percent = CASE WHEN $2 IN ('completed', 'issue_found') THEN $8 ELSE memory_percent END,
+           disk_percent = CASE WHEN $2 IN ('completed', 'issue_found') THEN $9 ELSE disk_percent END,
            findings = COALESCE($10, findings),
            action_items = COALESCE($11, action_items),
-           next_inspection_date = COALESCE($12, next_inspection_date)
+           next_inspection_date = CASE WHEN $2 IN ('completed', 'issue_found') THEN $12 ELSE next_inspection_date END
        WHERE id = $1`,
       [input.inspectionId, input.nextStatus, input.systemHealth || null, input.protectionStatus || null, input.syncStatus || null, input.serviceStatus || null, nullableMetric(input.cpuPercent), nullableMetric(input.memoryPercent), nullableMetric(input.diskPercent), input.findings || null, input.actionItems || null, input.nextInspectionDate || null],
     );
-    if (input.nextInspectionDate) {
-      await tx.query("UPDATE assets SET next_inspection_date = $1 WHERE id = $2", [input.nextInspectionDate, current.asset_id]);
-    }
+    await refreshAssetNextInspectionDate(tx, current.asset_id);
     await writeAudit(tx, {
       companyId: session.companyId,
       actorUserId: session.userId,
@@ -245,7 +320,20 @@ export function transitionInspection(session: SessionContext, input: InspectionR
       entityId: input.inspectionId,
       summary: `${current.number} 점검 상태 ${current.status} → ${input.nextStatus}`,
       beforeData: { status: current.status },
-      afterData: { status: input.nextStatus, systemHealth: input.systemHealth, nextInspectionDate: input.nextInspectionDate },
+      afterData: {
+        status: input.nextStatus,
+        systemHealth: input.systemHealth,
+        protectionStatus: input.protectionStatus,
+        syncStatus: input.syncStatus,
+        serviceStatus: input.serviceStatus,
+        cpuPercent: input.cpuPercent,
+        memoryPercent: input.memoryPercent,
+        diskPercent: input.diskPercent,
+        findings: input.findings,
+        actionItems: input.actionItems,
+        nextInspectionDate: input.nextInspectionDate,
+      },
     });
+    return { assetId: current.asset_id };
   });
 }

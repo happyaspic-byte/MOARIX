@@ -51,18 +51,68 @@ try {
     );
     await database.exec(roleStatement.rows[0].sql);
 
-    const grants = await database.query(
+    const baseGrants = await database.query(
       `SELECT ARRAY[
          format('GRANT CONNECT ON DATABASE %I TO %I', current_database(), $1::text),
          format('GRANT USAGE ON SCHEMA public TO %I', $1::text),
-         format('GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO %I', $1::text),
-         format('GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO %I', $1::text),
-         format('ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO %I', $1::text),
-         format('ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO %I', $1::text)
+         format('REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM %I', $1::text),
+         format('REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM %I', $1::text),
+         format('ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON TABLES FROM %I', $1::text),
+         format('GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO %I', $1::text)
        ] AS statements`,
       [appUser],
     );
-    for (const statement of grants.rows[0].statements) await database.exec(statement);
+    for (const statement of baseGrants.rows[0].statements) await database.exec(statement);
+
+    const sessionColumnRevokes = await database.query(
+      `SELECT format(
+         'REVOKE %s (%I) ON TABLE public.sessions FROM %I',
+         privilege_type,
+         column_name,
+         $1::text
+       ) AS sql
+       FROM information_schema.column_privileges
+       WHERE table_schema = 'public'
+         AND table_name = 'sessions'
+         AND grantee = $1::text`,
+      [appUser],
+    );
+    for (const row of sessionColumnRevokes.rows) await database.exec(row.sql);
+
+    const tenantTables = [
+      "counterparties", "items", "warehouses", "document_counters", "documents",
+      "document_lines", "inventory_balances", "inventory_movements", "assets",
+      "service_cases", "audit_logs", "idempotency_records", "customer_sites",
+      "maintenance_inspections", "service_case_activities", "service_case_attachments",
+      "asset_nodes", "asset_network_interfaces", "asset_virtual_machines",
+      "asset_support_contracts", "asset_licenses", "inspection_check_items",
+      "service_case_watchers",
+    ];
+    const tenantGrants = await database.query(
+      `SELECT format('GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.%I TO %I', table_name, $1::text) AS sql
+       FROM unnest($2::text[]) AS granted(table_name)`,
+      [appUser, tenantTables],
+    );
+    for (const row of tenantGrants.rows) await database.exec(row.sql);
+
+    const authGrants = await database.query(
+      `SELECT ARRAY[
+         format('REVOKE UPDATE (email, name, password_hash, is_active, last_login_at, updated_at) ON public.users FROM %I', $1::text),
+         format('GRANT SELECT (id, name, timezone, is_active) ON public.companies TO %I', $1::text),
+         format('GRANT SELECT (id, email, name, is_active, last_login_at, created_at, updated_at) ON public.users TO %I', $1::text),
+         format('GRANT INSERT (id, email, name, password_hash) ON public.users TO %I', $1::text),
+         format('GRANT SELECT, INSERT, UPDATE ON public.company_members TO %I', $1::text),
+         format('GRANT SELECT, INSERT, UPDATE, DELETE ON public.login_attempts TO %I', $1::text),
+         format('GRANT EXECUTE ON FUNCTION public.moarix_login_lookup(text) TO %I', $1::text),
+         format('GRANT EXECUTE ON FUNCTION public.moarix_find_session(text) TO %I', $1::text),
+         format('GRANT EXECUTE ON FUNCTION public.moarix_create_session(uuid, uuid, uuid, text, timestamptz, text, text, text) TO %I', $1::text),
+         format('GRANT EXECUTE ON FUNCTION public.moarix_touch_session(uuid) TO %I', $1::text),
+         format('GRANT EXECUTE ON FUNCTION public.moarix_revoke_session(text) TO %I', $1::text),
+         format('GRANT EXECUTE ON FUNCTION public.moarix_revoke_user_sessions(uuid, uuid) TO %I', $1::text)
+       ] AS statements`,
+      [appUser],
+    );
+    for (const statement of authGrants.rows[0].statements) await database.exec(statement);
     console.info(`Provisioned restricted PostgreSQL application role ${appUser}`);
   }
 } finally {

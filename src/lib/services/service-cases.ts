@@ -11,6 +11,8 @@ export type ServiceCaseActivityKind = "comment" | "internal_note" | "vendor_repl
 
 export type ServiceCaseRow = {
   id: string;
+  counterparty_id: string;
+  asset_id: string | null;
   number: string;
   case_type: ServiceCaseType;
   title: string;
@@ -46,6 +48,7 @@ export type ServiceCaseDetailRow = ServiceCaseRow & {
   product_name: string | null;
   product_model: string | null;
   software_version: string | null;
+  site_id: string | null;
   site_name: string | null;
   contract_number: string | null;
   support_provider: string | null;
@@ -78,10 +81,19 @@ export type ServiceCaseAttachmentRow = {
   uploaded_by_name: string;
 };
 
+export type ServiceCaseWatcherRow = {
+  id: string;
+  email: string;
+  display_name: string | null;
+  source: "manual" | "customer" | "vendor" | "distribution_list";
+  created_at: string;
+  created_by_name: string;
+};
+
 export function listServiceCases(companyId: string) {
   return withCompany(companyId, async (tx) => {
     const result = await tx.query<ServiceCaseRow>(
-      `SELECT s.id, s.number, s.case_type, s.title, s.severity, s.max_severity, s.status,
+      `SELECT s.id, s.counterparty_id, s.asset_id, s.number, s.case_type, s.title, s.severity, s.max_severity, s.status,
               c.name AS counterparty_name, a.asset_tag, u.name AS assigned_to_name,
               s.opened_at::text, s.updated_at::text, s.due_at::text, s.next_action_at::text,
               s.external_provider, s.external_case_number, s.waiting_reason, s.resolution_summary,
@@ -112,7 +124,7 @@ export function getServiceCaseDetail(companyId: string, caseId: string) {
               s.counterparty_id, c.name AS counterparty_name, c.email AS counterparty_email,
               c.phone AS counterparty_phone, s.contact_name, s.contact_email, s.contact_phone,
               s.entitlement, s.asset_id, a.asset_tag, a.vendor_asset_id, a.product_name,
-              a.product_model, a.software_version, cs.name AS site_name, a.contract_number,
+              a.product_model, a.software_version, a.site_id, cs.name AS site_name, a.contract_number,
               a.support_provider, a.support_level, u.name AS assigned_to_name,
               s.opened_at::text, s.updated_at::text, s.due_at::text, s.next_action_at::text,
               s.resolved_at::text, s.closed_at::text, s.external_provider,
@@ -133,7 +145,7 @@ export function getServiceCaseDetail(companyId: string, caseId: string) {
     const detail = detailResult.rows[0];
     if (!detail) return null;
 
-    const [activities, attachments] = await Promise.all([
+    const [activities, attachments, watchers] = await Promise.all([
       tx.query<ServiceCaseActivityRow>(
         `SELECT ca.id, ca.kind, ca.visibility, ca.body, ca.author_name,
                 ca.occurred_at::text, ca.created_at::text, u.name AS recorded_by_name
@@ -153,8 +165,53 @@ export function getServiceCaseDetail(companyId: string, caseId: string) {
          ORDER BY sa.occurred_at DESC, sa.created_at DESC, sa.id DESC`,
         [caseId],
       ),
+      tx.query<ServiceCaseWatcherRow>(
+        `SELECT sw.id, sw.email, sw.display_name, sw.source, sw.created_at::text,
+                u.name AS created_by_name
+         FROM service_case_watchers sw
+         JOIN users u ON u.id = sw.created_by
+         WHERE sw.case_id = $1
+         ORDER BY lower(COALESCE(sw.display_name, sw.email)), sw.created_at, sw.id`,
+        [caseId],
+      ),
     ]);
-    return { detail, activities: activities.rows, attachments: attachments.rows };
+    return { detail, activities: activities.rows, attachments: attachments.rows, watchers: watchers.rows };
+  });
+}
+
+export type ServiceCaseWatcherInput = {
+  caseId: string;
+  email: string;
+  displayName?: string;
+  source: ServiceCaseWatcherRow["source"];
+};
+
+export function addServiceCaseWatcher(session: SessionContext, input: ServiceCaseWatcherInput) {
+  return withCompany(session.companyId, async (tx) => {
+    const caseResult = await tx.query<{ number: string }>(
+      "SELECT number FROM service_cases WHERE id = $1",
+      [input.caseId],
+    );
+    const serviceCase = caseResult.rows[0];
+    if (!serviceCase) throw new Error("Service case not found");
+
+    const watcherId = randomUUID();
+    await tx.query(
+      `INSERT INTO service_case_watchers
+         (id, company_id, case_id, email, display_name, source, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [watcherId, session.companyId, input.caseId, input.email, input.displayName || null, input.source, session.userId],
+    );
+    await writeAudit(tx, {
+      companyId: session.companyId,
+      actorUserId: session.userId,
+      action: "service_case.watcher_added",
+      entityType: "service_case",
+      entityId: input.caseId,
+      summary: `${serviceCase.number} Task Watch List 추가`,
+      afterData: { watcherId, email: input.email, displayName: input.displayName, source: input.source },
+    });
+    return watcherId;
   });
 }
 
@@ -199,8 +256,9 @@ export function createServiceCase(session: SessionContext, input: ServiceCaseInp
     if (!customer.rows[0]) throw new Error("Service case customer mismatch");
     if (input.assetId) {
       const asset = await tx.query<{ id: string }>(
-        `SELECT id FROM assets
-         WHERE id = $1 AND counterparty_id = $2 AND status <> 'retired'`,
+        `SELECT asset.id FROM assets asset
+         WHERE asset.id = $1 AND asset.counterparty_id = $2 AND asset.status <> 'retired'
+         FOR UPDATE OF asset`,
         [input.assetId, input.counterpartyId],
       );
       if (!asset.rows[0]) throw new Error("Service case asset mismatch");
@@ -354,8 +412,8 @@ const statusLabels: Record<ServiceCaseStatus, string> = {
 
 export function transitionServiceCase(session: SessionContext, input: ServiceCaseTransitionInput) {
   return withCompany(session.companyId, async (tx) => {
-    const result = await tx.query<{ status: ServiceCaseStatus; number: string }>(
-      "SELECT status, number FROM service_cases WHERE id = $1 FOR UPDATE",
+    const result = await tx.query<{ status: ServiceCaseStatus; number: string; asset_id: string | null }>(
+      "SELECT status, number, asset_id FROM service_cases WHERE id = $1 FOR UPDATE",
       [input.caseId],
     );
     const current = result.rows[0];
@@ -363,6 +421,16 @@ export function transitionServiceCase(session: SessionContext, input: ServiceCas
     assertServiceCaseTransition(current.status, input.nextStatus);
     if (input.nextStatus === "waiting" && !input.waitingReason?.trim()) throw new Error("Waiting reason is required");
     if (input.nextStatus === "resolved" && !input.resolutionSummary?.trim()) throw new Error("Resolution summary is required");
+    if (current.asset_id && ["open", "in_progress", "waiting"].includes(input.nextStatus)) {
+      const asset = await tx.query<{ status: string }>(
+        "SELECT status FROM assets WHERE id = $1 AND company_id = $2 FOR UPDATE",
+        [current.asset_id, session.companyId],
+      );
+      if (!asset.rows[0]) throw new Error("Linked asset not found");
+      if (asset.rows[0].status === "retired") {
+        throw new Error("퇴역 자산에 연결된 케이스는 다시 활성화할 수 없습니다");
+      }
+    }
 
     await tx.query(
       `UPDATE service_cases

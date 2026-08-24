@@ -10,6 +10,10 @@ describe("role permissions", () => {
   it("keeps viewers read-only", () => {
     expect(hasPermission("viewer", "documents:read")).toBe(true);
     expect(hasPermission("viewer", "documents:write")).toBe(false);
+    expect(hasPermission("viewer", "assets:read")).toBe(true);
+    expect(hasPermission("viewer", "assets:write")).toBe(false);
+    expect(hasPermission("viewer", "service:read")).toBe(true);
+    expect(hasPermission("viewer", "service:write")).toBe(false);
   });
 
   it("reserves company settings for owners", () => {

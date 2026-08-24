@@ -21,6 +21,7 @@ export async function createInspectionAction(_state: FormState, formData: FormDa
     const session = await requirePermission("service:write");
     const result = await createInspection(session, parsed.data);
     refreshOperations();
+    revalidatePath(`/assets/${parsed.data.assetId}`);
     return { status: "success", message: `${result.number} 점검 일정을 등록했습니다.` };
   } catch (error) {
     return { status: "error", message: publicError(error, "점검 일정을 등록하지 못했습니다.") };
@@ -32,8 +33,9 @@ export async function transitionInspectionAction(_state: FormState, formData: Fo
   if (!parsed.success) return { status: "error", message: parsed.error.issues[0]?.message ?? "입력값을 확인해 주세요." };
   try {
     const session = await requirePermission("service:write");
-    await transitionInspection(session, parsed.data);
+    const result = await transitionInspection(session, parsed.data);
     refreshOperations();
+    revalidatePath(`/assets/${result.assetId}`);
     return { status: "success", message: "점검 상태와 결과를 반영했습니다." };
   } catch (error) {
     return { status: "error", message: publicError(error, "점검 상태를 변경하지 못했습니다.") };

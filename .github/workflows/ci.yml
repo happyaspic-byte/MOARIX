@@ -41,6 +41,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Scan repository for privacy leaks
+        run: npm run test:privacy
+
       - name: Lint
         run: npm run lint
 
@@ -88,7 +91,7 @@ jobs:
 
   postgres-security:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     services:
       postgres:
         image: postgres:17-alpine
@@ -124,8 +127,40 @@ jobs:
           DATABASE_APP_PASSWORD: MoarixAppCI42Secure
         run: node scripts/migrate-runtime.mjs
 
+      - name: Verify owner-only first administrator bootstrap
+        env:
+          DATABASE_DRIVER: postgres
+          DATABASE_URL: postgresql://moarix_owner:MoarixOwnerCI42Secure@127.0.0.1:5432/moarix
+          BOOTSTRAP_ADMIN_EMAIL: bootstrap-ci@example.invalid
+          BOOTSTRAP_ADMIN_PASSWORD: Moarix-Bootstrap-CI-42!
+          BOOTSTRAP_COMPANY_NAME: Synthetic Bootstrap Company
+          BOOTSTRAP_COMPANY_SLUG: synthetic-bootstrap
+        run: node scripts/bootstrap-admin.mjs
+
       - name: Verify PostgreSQL tenant isolation
         env:
           DATABASE_DRIVER: postgres
           DATABASE_URL: postgresql://moarix_app:MoarixAppCI42Secure@127.0.0.1:5432/moarix
+          DATABASE_OWNER_URL: postgresql://moarix_owner:MoarixOwnerCI42Secure@127.0.0.1:5432/moarix
+          SESSION_SECRET: postgres-security-ci-session-secret-42
         run: npm run test:rls
+
+      - name: Build PostgreSQL runtime image
+        run: docker build -t moarix:postgres-security .
+
+      - name: Verify restricted app-role image boot
+        run: |
+          container_id=$(docker run --detach --network host \
+            --env DATABASE_DRIVER=postgres \
+            --env DATABASE_URL=postgresql://moarix_app:MoarixAppCI42Secure@127.0.0.1:5432/moarix \
+            --env SESSION_SECRET=postgres-security-ci-session-secret-42 \
+            --env COOKIE_SECURE=false \
+            moarix:postgres-security)
+          cleanup() {
+            docker logs "$container_id" || true
+            docker rm --force "$container_id" >/dev/null || true
+          }
+          trap cleanup EXIT
+          curl --fail --silent --show-error \
+            --retry 20 --retry-delay 1 --retry-all-errors \
+            http://127.0.0.1:3000/api/health

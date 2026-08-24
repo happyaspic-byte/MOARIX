@@ -5,6 +5,7 @@ import type { FormState } from "@/components/form-message";
 import { requirePermission } from "@/lib/auth/current";
 import { publicError } from "@/lib/errors";
 import {
+  addServiceCaseWatcher,
   appendServiceCaseActivity,
   createServiceCase,
   registerServiceCaseAttachment,
@@ -15,6 +16,7 @@ import {
   serviceCaseAttachmentSchema,
   serviceCaseSchema,
   serviceCaseTransitionSchema,
+  serviceCaseWatcherSchema,
 } from "@/lib/validation/forms";
 
 export async function createServiceCaseAction(_state: FormState, formData: FormData): Promise<FormState> {
@@ -26,10 +28,24 @@ export async function createServiceCaseAction(_state: FormState, formData: FormD
     revalidatePath("/service");
     revalidatePath("/dashboard");
     revalidatePath("/sites");
+    if (parsed.data.assetId) revalidatePath(`/assets/${parsed.data.assetId}`);
     revalidatePath("/reports");
     return { status: "success", message: `${result.number} 서비스 케이스를 접수했습니다.` };
   } catch (error) {
     return { status: "error", message: publicError(error, "서비스 케이스를 접수하지 못했습니다.") };
+  }
+}
+
+export async function addServiceCaseWatcherAction(_state: FormState, formData: FormData): Promise<FormState> {
+  const parsed = serviceCaseWatcherSchema.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) return { status: "error", message: parsed.error.issues[0]?.message ?? "입력값을 확인해 주세요." };
+  try {
+    const session = await requirePermission("service:write");
+    await addServiceCaseWatcher(session, parsed.data);
+    revalidatePath(`/service/${parsed.data.caseId}`);
+    return { status: "success", message: "Task Watch List에 수신자를 추가했습니다." };
+  } catch (error) {
+    return { status: "error", message: publicError(error, "Task Watch List 수신자를 추가하지 못했습니다.") };
   }
 }
 
