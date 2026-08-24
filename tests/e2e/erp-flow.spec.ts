@@ -205,6 +205,7 @@ test("keeps the Stratus asset workspace accessible without mobile document overf
   const seededAssetCard = mobileList.locator("article").filter({ hasText: "ee-demo-001" });
   await expect(seededAssetCard).toBeVisible();
   await seededAssetCard.getByRole("link", { name: "자산 워크스페이스 열기" }).click();
+  await expect(page).toHaveURL(/\/assets\/[0-9a-f-]+$/);
   const assetPath = new URL(page.url()).pathname;
   await expectNoDocumentHorizontalOverflow(page, "mobile Stratus asset overview");
 

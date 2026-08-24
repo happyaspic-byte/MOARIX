@@ -147,7 +147,7 @@ export default async function AssetsPage({ searchParams }: { searchParams: Promi
   return <>
     <PageHeader
       eyebrow="STRATUS ASSET OPERATIONS"
-      title="자산 운영 큐"
+      title="Stratus 자산 운영"
       description="고객·사업장별 Stratus 구성, 고객 지원 의무, 벤더 백계약, 라이선스, 점검과 케이스를 한 흐름에서 관리합니다."
       actions={<>{hasPermission(session.role, "assets:write") ? <details className="create-panel"><summary className="button primary"><Plus size={17} />자산 등록</summary><div className="create-drawer"><div className="drawer-head"><div><h2>고객 자산 등록</h2><p>기본 자산을 만든 뒤 상세 화면에서 Node, 네트워크, VM과 계약 체인을 완성합니다.</p></div><DrawerCloseButton /></div><AssetForm counterparties={activeCustomers} sites={sites} /></div></details> : null}<Link className="button" href="/sites">사업장 관리</Link></>}
     />
