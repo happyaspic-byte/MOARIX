@@ -103,7 +103,7 @@ export async function updateMember(
     const currentResult = await tx.query<{ role: Role; is_active: boolean; name: string }>(
       `SELECT m.role, m.is_active, u.name
        FROM company_members m JOIN users u ON u.id = m.user_id
-       WHERE m.company_id = $1 AND m.user_id = $2 FOR UPDATE`,
+       WHERE m.company_id = $1 AND m.user_id = $2 FOR UPDATE OF m`,
       [session.companyId, input.userId],
     );
     const current = currentResult.rows[0];

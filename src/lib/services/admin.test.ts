@@ -112,6 +112,7 @@ describe("administrator owner invariant", () => {
 
     expect(ownerLockIndex).toBeGreaterThan(-1);
     expect(targetLockIndex).toBeGreaterThan(ownerLockIndex);
+    expect(normalized[targetLockIndex]).toContain("FOR UPDATE OF m");
     expect(statements[ownerLockIndex]?.params).toEqual([companyId]);
   });
 
