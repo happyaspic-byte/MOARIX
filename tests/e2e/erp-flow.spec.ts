@@ -55,7 +55,7 @@ test("authenticates and keeps ERP navigation accessible", async ({ page }) => {
     ["/sites", "고객 사업장"],
     ["/assets", "자산·지원 계약"],
     ["/inspections", "정기점검"],
-    ["/service", "장애·지원 케이스"],
+    ["/service", "서비스 케이스"],
     ["/reports", "표준·운영 보고서"],
     ["/admin/users", "사용자·역할"],
     ["/admin/audit", "감사 로그"],
@@ -129,6 +129,59 @@ test("connects a customer site, Stratus asset and inspection", async ({ page }) 
   await drawer.getByLabel("예정일 *").fill(new Date().toISOString().slice(0, 10));
   await drawer.getByRole("button", { name: "점검 일정 등록" }).click();
   await expect(page.locator(".data-table").getByText(assetTag)).toBeVisible();
+
+  const accessibility = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze();
+  expect(accessibility.violations.filter((violation) => violation.impact === "critical")).toEqual([]);
+});
+
+test("creates and operates a detailed service case", async ({ page }) => {
+  test.skip(!password, "E2E_PASSWORD is required");
+  await login(page, "/service");
+
+  const suffix = Date.now().toString(36).toUpperCase();
+  const title = `FT 동기화 브라우저 검증 ${suffix}`;
+  await page.locator("summary", { hasText: "케이스 접수" }).click();
+  let panel = page.locator(".create-drawer");
+  await panel.getByLabel("고객사 *").selectOption({ label: "CUST-001 · 한빛 제조" });
+  await panel.getByLabel("관련 자산").selectOption({ label: "ee-demo-001 · 창원 1공장 · everRun Enterprise 이중화 시스템" });
+  await panel.getByLabel("케이스 유형 *").selectOption("incident");
+  await panel.getByLabel("심각도 *").selectOption("high");
+  await panel.getByLabel("제목 *").fill(title);
+  await panel.getByLabel("최초 문의·장애 내용").fill("FT 메모리 동기화가 지연됩니다.\n가용성 링크와 메모리 사용률을 확인해 주세요.");
+  await panel.getByLabel("고객 담당자").fill("브라우저 검증 담당자");
+  await panel.getByLabel("지원 권한·Entitlement").fill("Demo Support 24x7");
+  await panel.getByLabel("외부 지원사").fill("Demo Support");
+  await panel.getByLabel("외부 케이스 번호").fill(`EXT-${suffix}`);
+  await panel.getByLabel("외부 원문 HTTPS 주소").fill(`https://support.example.invalid/case/${suffix}`);
+  await panel.getByRole("button", { name: "케이스 접수" }).click();
+  await expect(page.getByText(/서비스 케이스를 접수했습니다/)).toBeVisible();
+
+  await page.getByRole("link", { name: title }).click();
+  await expect(page).toHaveURL(/\/service\/[0-9a-f-]+$/);
+  await expect(page).toHaveTitle("서비스 케이스 상세 | MOARIX");
+  await expect(page.getByRole("heading", { level: 1, name: title })).toBeVisible();
+  await expect(page.getByText("FT 메모리 동기화가 지연됩니다.")).toBeVisible();
+
+  await page.locator("summary", { hasText: "활동 기록" }).click();
+  panel = page.locator(".case-entry-popover");
+  await panel.getByLabel("활동 유형 *").selectOption("vendor_reply");
+  await panel.getByLabel("외부 작성자 *").fill("Demo Support Engineer");
+  await panel.getByLabel("내용 *").fill("패킷 오류를 확인했습니다.\n케이블을 한 개씩 교체해 주세요.");
+  await panel.getByRole("button", { name: "활동 기록" }).click();
+  await expect(page.getByText("패킷 오류를 확인했습니다.")).toBeVisible();
+
+  await page.locator("summary", { hasText: "첨부 링크 등록" }).click();
+  panel = page.locator(".case-entry-popover");
+  await panel.getByLabel("파일명 *").fill(`diagnostic-${suffix}.zip`);
+  await panel.getByLabel("HTTPS 다운로드 주소 *").fill(`https://storage.example.invalid/${suffix}/diagnostic.zip`);
+  await panel.getByLabel("MIME 유형").fill("application/zip");
+  await panel.getByLabel("파일 크기 (MB)").fill("395");
+  await panel.getByRole("button", { name: "첨부 링크 등록" }).click();
+  await expect(page.getByText(`diagnostic-${suffix}.zip`)).toBeVisible();
+  await expect(page.getByText(/395\.00 MB/)).toBeVisible();
+
+  await page.getByRole("button", { name: "처리 시작" }).click();
+  await expect(page.locator(".status-in_progress").first()).toHaveText("처리 중");
 
   const accessibility = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze();
   expect(accessibility.violations.filter((violation) => violation.impact === "critical")).toEqual([]);

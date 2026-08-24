@@ -9,7 +9,7 @@ import { requirePermission } from "@/lib/auth/current";
 import { hasPermission } from "@/lib/security/permissions";
 import { formatSupportHealth, getSupportHealth } from "@/lib/domain/support-health";
 import { dateInTimeZone } from "@/lib/domain/company-date";
-import { listAssetsAndCases } from "@/lib/services/assets-service";
+import { listAssets } from "@/lib/services/assets-service";
 import { listCounterparties } from "@/lib/services/master-data";
 import { listCustomerSites } from "@/lib/services/operations-service";
 import { AssetForm } from "./asset-form";
@@ -19,7 +19,7 @@ export const dynamic = "force-dynamic";
 
 export default async function AssetsPage({ searchParams }: { searchParams: Promise<{ support?: string }> }) {
   const session = await requirePermission("assets:read");
-  const [{ assets }, counterparties, sites] = await Promise.all([listAssetsAndCases(session.companyId), listCounterparties(session.companyId), listCustomerSites(session.companyId)]);
+  const [assets, counterparties, sites] = await Promise.all([listAssets(session.companyId), listCounterparties(session.companyId), listCustomerSites(session.companyId)]);
   const today = dateInTimeZone(session.companyTimezone);
   const { support } = await searchParams;
   const rows = assets.map((asset) => ({ asset, health: getSupportHealth({ contractStatus: asset.contract_status, supportUntil: asset.support_until, assetStatus: asset.status }, today) }));

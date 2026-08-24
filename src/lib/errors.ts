@@ -11,7 +11,11 @@ export function publicError(error: unknown, fallback = "요청을 처리하지 �
     if (error.message.includes("cannot manage an owner")) return "관리자는 소유자 계정을 변경할 수 없습니다.";
     if (error.message.includes("cannot assign the owner role")) return "소유자 역할은 현재 소유자만 지정할 수 있습니다.";
     if (error.message.includes("Customer site mismatch")) return "선택한 사업장이 고객사에 속하지 않습니다.";
+    if (error.message.includes("Service case customer mismatch")) return "활성 고객사만 서비스 케이스에 연결할 수 있습니다.";
     if (error.message.includes("Service case asset mismatch")) return "선택한 자산이 고객사에 속하지 않습니다.";
+    if (error.message.includes("Service case not found")) return "서비스 케이스를 찾을 수 없습니다.";
+    if (error.message.includes("External activity author is required")) return "외부 회신의 작성자를 입력하세요.";
+    if (error.message.includes("HTTPS URL required")) return "사용자 정보가 포함되지 않은 HTTPS 주소를 입력하세요.";
     if (error.message.includes("Asset site is required")) return "사업장이 연결된 자산만 점검할 수 있습니다.";
     if (error.message.includes("Invalid service case transition")) return "현재 상태에서 요청한 케이스 상태로 변경할 수 없습니다.";
     if (error.message.includes("Invalid inspection transition")) return "현재 상태에서 요청한 점검 상태로 변경할 수 없습니다.";
