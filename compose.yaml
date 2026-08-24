@@ -5,7 +5,7 @@ services:
     environment:
       POSTGRES_DB: moarix
       POSTGRES_USER: moarix
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-this-database-password}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD to a strong value}
     volumes:
       - moarix_postgres:/var/lib/postgresql/data
     healthcheck:
@@ -22,7 +22,7 @@ services:
         condition: service_healthy
     environment:
       DATABASE_DRIVER: postgres
-      DATABASE_URL: postgresql://moarix:${POSTGRES_PASSWORD:-change-this-database-password}@database:5432/moarix
+      DATABASE_URL: postgresql://moarix:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD to a strong value}@database:5432/moarix
       SESSION_SECRET: ${SESSION_SECRET:?Set SESSION_SECRET to at least 32 random characters}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
     ports:
