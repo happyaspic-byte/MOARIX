@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 import { FormMessage, initialFormState } from "@/components/form-message";
 import { SubmitButton } from "@/components/submit-button";
 import type { AssetRow } from "@/lib/services/assets-service";
@@ -10,8 +10,12 @@ import { createServiceCaseAction } from "./actions";
 export function ServiceCaseForm({ counterparties, assets }: { counterparties: CounterpartyRow[]; assets: AssetRow[] }) {
   const [state, action] = useActionState(createServiceCaseAction, initialFormState);
   const [counterpartyId, setCounterpartyId] = useState("");
+  const formRef = useRef<HTMLFormElement>(null);
   const availableAssets = assets.filter((asset) => asset.counterparty_id === counterpartyId && asset.status !== "retired");
-  return <form action={action} className="form-grid">
+  useEffect(() => {
+    if (state.status === "success") formRef.current?.closest("details")?.removeAttribute("open");
+  }, [state]);
+  return <form ref={formRef} action={action} className="form-grid">
     <label className="full"><span>고객사 *</span><select name="counterpartyId" required value={counterpartyId} onChange={(event) => setCounterpartyId(event.target.value)}><option value="" disabled>고객사 선택</option>{counterparties.filter((row) => row.kind !== "supplier").map((row) => <option key={row.id} value={row.id}>{row.code} · {row.name}</option>)}</select></label>
     <label><span>관련 자산</span><select name="assetId" defaultValue="" key={counterpartyId} disabled={!counterpartyId}><option value="">자산 미지정</option>{availableAssets.map((row) => <option key={row.id} value={row.id}>{row.vendor_asset_id ?? row.asset_tag} · {row.site} · {row.product_name}</option>)}</select></label>
     <label><span>케이스 유형 *</span><select name="caseType" defaultValue="incident"><option value="incident">장애</option><option value="request">서비스 요청</option><option value="question">기술 문의</option><option value="maintenance">유지보수</option></select></label>
