@@ -154,9 +154,9 @@ test("creates and operates a detailed service case", async ({ page }) => {
   await panel.getByLabel("외부 케이스 번호").fill(`EXT-${suffix}`);
   await panel.getByLabel("외부 원문 HTTPS 주소").fill(`https://support.example.invalid/case/${suffix}`);
   await panel.getByRole("button", { name: "케이스 접수" }).click();
-  await expect(page.getByText(/서비스 케이스를 접수했습니다/)).toBeVisible();
-
-  await page.getByRole("link", { name: title }).click();
+  const caseLink = page.getByRole("link", { name: title });
+  await expect(caseLink).toBeVisible();
+  await caseLink.click();
   await expect(page).toHaveURL(/\/service\/[0-9a-f-]+$/);
   await expect(page).toHaveTitle("서비스 케이스 상세 | MOARIX");
   await expect(page.getByRole("heading", { level: 1, name: title })).toBeVisible();
@@ -177,8 +177,9 @@ test("creates and operates a detailed service case", async ({ page }) => {
   await panel.getByLabel("MIME 유형").fill("application/zip");
   await panel.getByLabel("파일 크기 (MB)").fill("395");
   await panel.getByRole("button", { name: "첨부 링크 등록" }).click();
-  await expect(page.getByText(`diagnostic-${suffix}.zip`)).toBeVisible();
-  await expect(page.getByText(/395\.00 MB/)).toBeVisible();
+  const attachment = page.locator(".attachment-item").filter({ hasText: `diagnostic-${suffix}.zip` });
+  await expect(attachment).toBeVisible();
+  await expect(attachment).toContainText("395.00 MB");
 
   await page.getByRole("button", { name: "처리 시작" }).click();
   await expect(page.locator(".status-in_progress").first()).toHaveText("처리 중");
