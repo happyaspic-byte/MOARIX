@@ -22,6 +22,10 @@ const nextConfig: NextConfig = {
   output: "standalone",
   poweredByHeader: false,
   reactStrictMode: true,
+  // PGlite resolves its WASM/data assets from import.meta.url at runtime. Keeping
+  // it external prevents the server bundler from creating a cross-realm URL
+  // object that Node's filesystem APIs reject in production server actions.
+  serverExternalPackages: ["@electric-sql/pglite"],
   async headers() {
     return [{ source: "/(.*)", headers: securityHeaders }];
   },

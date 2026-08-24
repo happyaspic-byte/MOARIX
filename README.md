@@ -111,8 +111,11 @@ npm run smoke
 
 ```bash
 npx playwright install chromium
+# npm run build와 npm run db:setup이 먼저 완료되어 있어야 합니다.
 E2E_PASSWORD="$SEED_DEMO_PASSWORD" npm run test:e2e
 ```
+
+브라우저 검증은 정적 자산을 포함한 Next.js standalone 런타임을 직접 기동하여 운영 번들과 동일한 서버 경로를 검사합니다.
 
 CI는 린트, 타입 검사, 커버리지, 마이그레이션, 프로덕션 빌드, 도메인/HTTP 스모크, Playwright, Docker 빌드를 모두 검사합니다.
 

@@ -62,7 +62,14 @@ jobs:
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
 
+      - name: Prepare isolated browser database
+        env:
+          LOCAL_DATABASE_PATH: ${{ runner.temp }}/moarix-e2e-${{ github.run_id }}/pglite
+        run: npm run db:setup
+
       - name: Run browser tests
+        env:
+          LOCAL_DATABASE_PATH: ${{ runner.temp }}/moarix-e2e-${{ github.run_id }}/pglite
         run: npm run test:e2e
 
       - name: Validate container image

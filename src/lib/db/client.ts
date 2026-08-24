@@ -122,7 +122,11 @@ async function createDatabase(): Promise<Database> {
 let databasePromise: Promise<Database> | undefined;
 
 export function getDatabase() {
-  databasePromise ??= createDatabase();
+  databasePromise ??= createDatabase().catch((error) => {
+    // Allow a later request to recover from a transient initialization failure.
+    databasePromise = undefined;
+    throw error;
+  });
   return databasePromise;
 }
 

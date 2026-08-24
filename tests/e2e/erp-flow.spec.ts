@@ -1,12 +1,19 @@
 import AxeBuilder from "@axe-core/playwright";
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 const email = process.env.E2E_EMAIL ?? "admin@moarix.local";
 const password = process.env.E2E_PASSWORD;
+const sessionCookieNames = new Set(["moarix_session", "__Host-moarix_session"]);
 
-test.describe.configure({ mode: "serial" });
+async function login(page: Page, expectedPath = "/dashboard") {
+  await page.goto(`/login?next=${encodeURIComponent(expectedPath)}`);
+  await page.getByLabel("이메일").fill(email);
+  await page.getByLabel("비밀번호").fill(password!);
+  await page.getByRole("button", { name: "안전하게 로그인" }).click();
+  await expect(page).toHaveURL((url) => url.pathname === expectedPath);
+}
 
-test("authentication, accessibility and ERP navigation", async ({ page }) => {
+test("rejects invalid credentials without issuing a session", async ({ page }) => {
   test.skip(!password, "E2E_PASSWORD is required");
 
   await page.goto("/login");
@@ -14,12 +21,22 @@ test("authentication, accessibility and ERP navigation", async ({ page }) => {
   await page.getByLabel("이메일").fill(email);
   await page.getByLabel("비밀번호").fill("incorrect-password");
   await page.getByRole("button", { name: "안전하게 로그인" }).click();
-  await expect(page.getByText("이메일 또는 비밀번호가 올바르지 않습니다.")).toBeVisible();
+  await expect(
+    page.getByRole("alert").filter({ hasText: "이메일 또는 비밀번호가 올바르지 않습니다." }),
+  ).toHaveText("이메일 또는 비밀번호가 올바르지 않습니다.");
+  await expect(page).toHaveURL((url) => url.pathname === "/login");
+  expect(
+    (await page.context().cookies()).filter((cookie) => sessionCookieNames.has(cookie.name)),
+  ).toEqual([]);
+});
 
-  await page.getByLabel("비밀번호").fill(password!);
-  await page.getByRole("button", { name: "안전하게 로그인" }).click();
-  await expect(page).toHaveURL(/\/dashboard$/);
+test("authenticates and keeps ERP navigation accessible", async ({ page }) => {
+  test.skip(!password, "E2E_PASSWORD is required");
+
+  await login(page);
   await expect(page.getByRole("heading", { level: 1 })).toContainText("업무 현황입니다");
+  const sessionCookie = (await page.context().cookies()).find((cookie) => sessionCookieNames.has(cookie.name));
+  expect(sessionCookie).toMatchObject({ httpOnly: true, sameSite: "Lax" });
 
   const accessibility = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze();
   const critical = accessibility.violations.filter((violation) => violation.impact === "critical");
@@ -43,6 +60,7 @@ test("authentication, accessibility and ERP navigation", async ({ page }) => {
   ];
   for (const [route, title] of routes) {
     await page.goto(route);
+    await expect(page).toHaveURL((url) => url.pathname === route);
     await expect(page).toHaveTitle(`${title} | MOARIX`);
     await expect(page.locator("main")).toBeVisible();
   }
@@ -50,11 +68,7 @@ test("authentication, accessibility and ERP navigation", async ({ page }) => {
 
 test("creates a counterparty through the browser", async ({ page }) => {
   test.skip(!password, "E2E_PASSWORD is required");
-  await page.goto("/login");
-  await page.getByLabel("이메일").fill(email);
-  await page.getByLabel("비밀번호").fill(password!);
-  await page.getByRole("button", { name: "안전하게 로그인" }).click();
-  await page.goto("/counterparties");
+  await login(page, "/counterparties");
 
   const suffix = Date.now().toString(36).toUpperCase();
   await page.locator("summary", { hasText: "거래처 등록" }).click();
@@ -69,10 +83,7 @@ test("creates a counterparty through the browser", async ({ page }) => {
 test("keeps core navigation usable on a mobile viewport", async ({ page }) => {
   test.skip(!password, "E2E_PASSWORD is required");
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/login");
-  await page.getByLabel("이메일").fill(email);
-  await page.getByLabel("비밀번호").fill(password!);
-  await page.getByRole("button", { name: "안전하게 로그인" }).click();
+  await login(page);
   await expect(page.getByRole("navigation", { name: "주 메뉴" })).toBeVisible();
   await page.getByRole("link", { name: "재고·원장" }).click();
   await expect(page).toHaveURL(/\/inventory$/);

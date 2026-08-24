@@ -19,13 +19,15 @@ export default defineConfig({
     { name: "chromium", use: { ...devices["Desktop Chrome"] } },
   ],
   webServer: process.env.E2E_EXTERNAL_SERVER === "true" ? undefined : {
-    command: `next start -H 127.0.0.1 -p ${port}`,
+    command: "node .next/standalone/server.js",
     url: `${baseURL}/api/health`,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
     env: {
       ...process.env,
       COOKIE_SECURE: "false",
+      HOSTNAME: "127.0.0.1",
+      PORT: String(port),
     },
   },
 });

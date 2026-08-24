@@ -5,12 +5,8 @@ import { redirect } from "next/navigation";
 import type { FormState } from "@/components/form-message";
 import { writeSessionCookie } from "@/lib/auth/cookies";
 import { authenticate } from "@/lib/auth/repository";
+import { safeInternalRedirect } from "@/lib/security/internal-redirect";
 import { loginSchema } from "@/lib/validation/forms";
-
-function safeNext(value: FormDataEntryValue | null) {
-  if (typeof value !== "string" || !value.startsWith("/") || value.startsWith("//")) return "/dashboard";
-  return value;
-}
 
 export async function loginAction(_state: FormState, formData: FormData): Promise<FormState> {
   const parsed = loginSchema.safeParse({
@@ -31,9 +27,10 @@ export async function loginAction(_state: FormState, formData: FormData): Promis
       return { status: "error", message: "이메일 또는 비밀번호가 올바르지 않습니다." };
     }
     await writeSessionCookie(result.token, result.expiresAt);
-  } catch {
+  } catch (error) {
+    console.error("[auth.login] unexpected authentication failure", error);
     return { status: "error", message: "로그인 서비스를 사용할 수 없습니다. 잠시 후 다시 시도해 주세요." };
   }
 
-  redirect(safeNext(formData.get("next")));
+  redirect(safeInternalRedirect(formData.get("next")));
 }
