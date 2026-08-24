@@ -63,6 +63,7 @@ export type SessionContext = {
   userName: string;
   email: string;
   companyName: string;
+  companyTimezone: string;
   role: Role;
   expiresAt: Date;
 };
@@ -138,6 +139,7 @@ export async function findSession(token: string): Promise<SessionContext | null>
     user_name: string;
     email: string;
     company_name: string;
+    company_timezone: string;
     role: Role;
     expires_at: Date | string;
   }>(
@@ -148,6 +150,7 @@ export async function findSession(token: string): Promise<SessionContext | null>
        u.name AS user_name,
        u.email,
        c.name AS company_name,
+       c.timezone AS company_timezone,
        m.role,
        s.expires_at
      FROM sessions s
@@ -178,6 +181,7 @@ export async function findSession(token: string): Promise<SessionContext | null>
     userName: row.user_name,
     email: row.email,
     companyName: row.company_name,
+    companyTimezone: row.company_timezone,
     role: row.role,
     expiresAt: new Date(row.expires_at),
   };

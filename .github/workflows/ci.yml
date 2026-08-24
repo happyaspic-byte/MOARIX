@@ -85,3 +85,47 @@ jobs:
             test-results
           if-no-files-found: ignore
           retention-days: 7
+
+  postgres-security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: moarix
+          POSTGRES_USER: moarix_owner
+          POSTGRES_PASSWORD: MoarixOwnerCI42Secure
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U moarix_owner -d moarix"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Migrate and provision restricted application role
+        env:
+          DATABASE_DRIVER: postgres
+          DATABASE_URL: postgresql://moarix_owner:MoarixOwnerCI42Secure@127.0.0.1:5432/moarix
+          DATABASE_APP_USER: moarix_app
+          DATABASE_APP_PASSWORD: MoarixAppCI42Secure
+        run: node scripts/migrate-runtime.mjs
+
+      - name: Verify PostgreSQL tenant isolation
+        env:
+          DATABASE_DRIVER: postgres
+          DATABASE_URL: postgresql://moarix_app:MoarixAppCI42Secure@127.0.0.1:5432/moarix
+        run: npm run test:rls

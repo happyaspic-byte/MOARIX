@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { getDatabase } from "../src/lib/db/client";
 
@@ -11,7 +11,9 @@ async function migrate() {
     );
   `);
 
-  const migrations = ["001_init.sql", "002_auth_hardening.sql"];
+  const migrations = (await readdir(path.join(process.cwd(), "migrations")))
+    .filter((name) => /^\d+_.+\.sql$/.test(name))
+    .sort();
   for (const name of migrations) {
     const existing = await database.query<{ name: string }>(
       "SELECT name FROM schema_migrations WHERE name = $1",

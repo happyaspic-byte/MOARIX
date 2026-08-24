@@ -4,13 +4,14 @@ import path from "node:path";
 import { authenticate, findSession } from "../src/lib/auth/repository";
 import { getDatabase } from "../src/lib/db/client";
 import { hashSessionToken } from "../src/lib/security/session-token";
-import { createAsset, createServiceCase, listAssetsAndCases } from "../src/lib/services/assets-service";
+import { createAsset, createServiceCase, listAssetsAndCases, transitionServiceCase } from "../src/lib/services/assets-service";
 import { createMember, listAuditLogs, listMembers, updateMember } from "../src/lib/services/admin";
 import { getDashboard } from "../src/lib/services/dashboard";
 import { createDocument, listDocuments, transitionDocument } from "../src/lib/services/documents";
 import { listInventory, postInventoryMovement } from "../src/lib/services/inventory-service";
 import { createCounterparty, createItem, createWarehouse } from "../src/lib/services/master-data";
 import { getStandardReports } from "../src/lib/services/reports";
+import { createCustomerSite, createInspection, listCustomerSites, listInspections, transitionInspection } from "../src/lib/services/operations-service";
 
 const email = process.env.SMOKE_EMAIL ?? "admin@moarix.local";
 const password = process.env.SMOKE_PASSWORD;
@@ -34,6 +35,21 @@ async function exerciseDomain() {
     name: `런타임 검증 고객 ${suffix}`,
     paymentTermsDays: 30,
     creditLimit: "1000000",
+  });
+  const otherCustomerId = await createCounterparty(session, {
+    code: `SMK-B-${suffix}`,
+    kind: "customer",
+    name: `런타임 검증 다른 고객 ${suffix}`,
+    paymentTermsDays: 30,
+    creditLimit: "1000000",
+  });
+  const siteId = await createCustomerSite(session, {
+    counterpartyId,
+    code: `SITE-${suffix}`,
+    name: `런타임 검증 사업장 ${suffix}`,
+    address: "검증 전용 주소",
+    contactName: "검증 담당자",
+    timezone: "Asia/Seoul",
   });
   const itemId = await createItem(session, {
     sku: `SMK-ITEM-${suffix}`,
@@ -94,8 +110,18 @@ async function exerciseDomain() {
 
   const assetId = await createAsset(session, {
     counterpartyId,
+    siteId,
     assetTag: `SMK-AST-${suffix}`,
+    vendorAssetId: `ee-${suffix.toLowerCase()}`,
     productName: `런타임 검증 자산 ${suffix}`,
+    productFamily: "everrun",
+    productModel: "Smoke Platform",
+    softwareVersion: "8.0-smoke",
+    protectionMode: "ft",
+    operatingSystem: "Windows Server Smoke",
+    serviceMethod: "hybrid",
+    contractStatus: "pending_renewal",
+    supportProvider: "Stratus",
     supportUntil: today,
   });
   const service = await createServiceCase(session, {
@@ -103,10 +129,45 @@ async function exerciseDomain() {
     assetId,
     title: `런타임 검증 케이스 ${suffix}`,
     severity: "high",
+    externalProvider: "Stratus",
+    externalCaseNumber: `CS-${suffix}`,
+  });
+  await transitionServiceCase(session, { caseId: service.id, nextStatus: "in_progress" });
+  await transitionServiceCase(session, { caseId: service.id, nextStatus: "resolved", resolutionSummary: "런타임 검증 해결" });
+  await transitionServiceCase(session, { caseId: service.id, nextStatus: "closed" });
+  let mismatchedAssetRejected = false;
+  try {
+    await createServiceCase(session, { counterpartyId: otherCustomerId, assetId, title: "잘못된 고객 자산 연결", severity: "normal" });
+  } catch (error) {
+    mismatchedAssetRejected = error instanceof Error && error.message.includes("asset mismatch");
+  }
+  invariant(mismatchedAssetRejected, "A service case accepted an asset owned by another customer");
+
+  const inspection = await createInspection(session, {
+    assetId,
+    inspectionType: "quarterly",
+    scheduledDate: today,
+    reportReference: "런타임 점검 양식",
+  });
+  await transitionInspection(session, { inspectionId: inspection.id, nextStatus: "in_progress" });
+  await transitionInspection(session, {
+    inspectionId: inspection.id,
+    nextStatus: "completed",
+    systemHealth: "healthy",
+    protectionStatus: "pass",
+    syncStatus: "pass",
+    serviceStatus: "pass",
+    cpuPercent: 21.5,
+    memoryPercent: 43.2,
+    diskPercent: 51,
+    findings: "이상 없음",
+    actionItems: "다음 분기 재점검",
   });
   const assetsAndCases = await listAssetsAndCases(session.companyId);
   invariant(assetsAndCases.assets.some((row) => row.id === assetId), "Created asset was not listed");
-  invariant(assetsAndCases.cases.some((row) => row.id === service.id), "Created service case was not listed");
+  invariant(assetsAndCases.cases.some((row) => row.id === service.id && row.status === "closed"), "Service case workflow did not reach closed");
+  invariant((await listCustomerSites(session.companyId)).some((row) => row.id === siteId), "Created customer site was not listed");
+  invariant((await listInspections(session.companyId)).some((row) => row.id === inspection.id && row.status === "completed"), "Inspection workflow did not reach completed");
 
   const memberId = await createMember(session, {
     email: `member-${suffix.toLowerCase()}@moarix.local`,
@@ -132,6 +193,8 @@ async function exerciseDomain() {
   ]);
   invariant(dashboard.documents.length > 0, "Dashboard document query returned no rows");
   invariant(reports.documentSummary.length > 0, "Standard report query returned no rows");
+  invariant(reports.supportSummary.length > 0, "Support coverage report returned no rows");
+  invariant(reports.inspectionSummary.length > 0, "Inspection report returned no rows");
   invariant(audit.some((row) => row.action === "document.status_changed"), "Audit trail missed document state changes");
 
   const database = await getDatabase();
@@ -188,9 +251,11 @@ async function exerciseHttp(token: string) {
       ["/warehouses", "창고"],
       ["/documents/quote", "견적"],
       ["/inventory", "재고·원장"],
-      ["/assets", "고객 자산"],
-      ["/service", "서비스 케이스"],
-      ["/reports", "표준 보고서"],
+      ["/sites", "고객 사업장"],
+      ["/assets", "자산·지원 계약"],
+      ["/inspections", "정기점검"],
+      ["/service", "장애·지원 케이스"],
+      ["/reports", "표준·운영 보고서"],
       ["/admin/users", "사용자·역할"],
       ["/admin/audit", "감사 로그"],
     ];
@@ -219,4 +284,4 @@ async function exerciseHttp(token: string) {
 
 const token = await exerciseDomain();
 await exerciseHttp(token);
-console.info("Runtime smoke passed: domain workflows, auth hardening and 11 authenticated pages verified.");
+console.info("Runtime smoke passed: domain workflows, auth hardening and 13 authenticated pages verified.");

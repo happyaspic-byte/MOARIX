@@ -2,7 +2,7 @@
 
 ## 배포 전
 
-1. 운영 PostgreSQL과 최소 권한 애플리케이션 계정을 준비합니다.
+1. 운영 PostgreSQL의 마이그레이션 소유자와 `NOSUPERUSER NOBYPASSRLS` 애플리케이션 계정을 분리합니다.
 2. `SESSION_SECRET`을 비밀 관리 시스템에서 생성하고 환경별로 분리합니다.
 3. HTTPS 종단과 `COOKIE_SECURE=true`를 확인합니다.
 4. 마이그레이션을 스테이징 데이터 사본에 먼저 적용합니다.
@@ -25,7 +25,17 @@
 npm run db:migrate
 ```
 
-컨테이너는 시작 전에 `scripts/migrate-runtime.mjs`를 실행합니다. 적용된 파일은 `schema_migrations`에 기록되며 같은 마이그레이션을 다시 실행하지 않습니다. 이미 배포된 SQL 파일은 수정하지 말고 새 번호의 파일을 추가합니다.
+Compose의 일회성 `migrate` 서비스는 DB 소유자로 `scripts/migrate-runtime.mjs`를 실행한 뒤 제한된 `moarix_app` 역할과 권한을 준비합니다. 앱 컨테이너에는 소유자 자격증명을 전달하지 않습니다. 적용된 파일은 `schema_migrations`에 기록되며 같은 마이그레이션을 다시 실행하지 않습니다. 이미 배포된 SQL 파일은 수정하지 말고 새 번호의 파일을 추가합니다.
+
+배포 후 역할을 확인합니다.
+
+```sql
+SELECT rolname, rolsuper, rolbypassrls
+FROM pg_roles
+WHERE rolname = 'moarix_app';
+```
+
+두 보안 값이 모두 `false`여야 합니다. 실제 PostgreSQL 격리 검증은 `npm run test:rls`로 실행합니다.
 
 ## 백업·복구
 
@@ -44,7 +54,7 @@ pg_restore --clean --if-exists --no-owner --dbname=moarix_restore_test moarix.du
 - HTTP 5xx와 `/api/health` 실패율
 - DB 연결 포화, 장기 트랜잭션, 잠금 대기
 - 로그인 차단 증가율과 비정상 IP 패턴
-- 문서 승인·재고 변동 실패
+- 문서 승인·재고 변동 실패, 지원 만료·미계약과 점검 기한 초과
 - 디스크 사용량과 백업 성공 여부
 
 로그에 비밀번호, 세션 토큰, `DATABASE_URL`, 고객 개인정보를 기록하지 않습니다.

@@ -6,6 +6,9 @@ export type DashboardMetrics = {
   lowStockCount: number;
   openCases: number;
   expiringAssets: number;
+  expiredAssets: number;
+  uncontractedAssets: number;
+  dueInspections: number;
   pendingApprovals: number;
 };
 
@@ -26,6 +29,9 @@ export function getDashboard(companyId: string) {
         low_stock_count: string;
         open_cases: string;
         expiring_assets: string;
+        expired_assets: string;
+        uncontracted_assets: string;
+        due_inspections: string;
         pending_approvals: string;
       }>(
         `SELECT
@@ -33,7 +39,10 @@ export function getDashboard(companyId: string) {
            COALESCE((SELECT SUM(grand_total) FROM documents WHERE kind = 'bill' AND status = 'posted' AND issue_date >= date_trunc('month', CURRENT_DATE)), 0)::text AS month_purchases,
            (SELECT COUNT(*) FROM inventory_balances b JOIN items i ON i.company_id = b.company_id AND i.id = b.item_id WHERE b.on_hand - b.reserved <= i.reorder_point)::text AS low_stock_count,
            (SELECT COUNT(*) FROM service_cases WHERE status IN ('open', 'in_progress', 'waiting'))::text AS open_cases,
-           (SELECT COUNT(*) FROM assets WHERE support_until BETWEEN CURRENT_DATE AND CURRENT_DATE + 90)::text AS expiring_assets,
+           (SELECT COUNT(*) FROM assets WHERE status <> 'retired' AND contract_status NOT IN ('not_contracted', 'expired') AND (contract_status = 'pending_renewal' OR support_until BETWEEN moarix_company_today() AND moarix_company_today() + 90))::text AS expiring_assets,
+           (SELECT COUNT(*) FROM assets WHERE status <> 'retired' AND (contract_status = 'expired' OR support_until < moarix_company_today()))::text AS expired_assets,
+           (SELECT COUNT(*) FROM assets WHERE status <> 'retired' AND contract_status = 'not_contracted')::text AS uncontracted_assets,
+           (SELECT COUNT(*) FROM maintenance_inspections WHERE status IN ('scheduled', 'in_progress', 'issue_found') AND scheduled_date <= moarix_company_today() + 30)::text AS due_inspections,
            (SELECT COUNT(*) FROM documents WHERE status = 'submitted')::text AS pending_approvals`,
       ),
       tx.query<RecentActivity>(
@@ -69,6 +78,9 @@ export function getDashboard(companyId: string) {
         lowStockCount: Number(row?.low_stock_count ?? 0),
         openCases: Number(row?.open_cases ?? 0),
         expiringAssets: Number(row?.expiring_assets ?? 0),
+        expiredAssets: Number(row?.expired_assets ?? 0),
+        uncontractedAssets: Number(row?.uncontracted_assets ?? 0),
+        dueInspections: Number(row?.due_inspections ?? 0),
         pendingApprovals: Number(row?.pending_approvals ?? 0),
       } satisfies DashboardMetrics,
       activities: activities.rows,

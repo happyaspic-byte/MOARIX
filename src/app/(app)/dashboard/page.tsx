@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { AlertTriangle, BadgeDollarSign, Boxes, LifeBuoy, ShoppingBag } from "lucide-react";
+import { AlertTriangle, BadgeDollarSign, Boxes, CalendarCheck2, CircleOff, ClockAlert, LifeBuoy, ShoppingBag } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
 import { MetricCard } from "@/components/metric-card";
 import { PageHeader } from "@/components/page-header";
@@ -27,7 +27,7 @@ export default async function DashboardPage() {
       <PageHeader
         eyebrow="OPERATION OVERVIEW"
         title={`${session.userName}님, 업무 현황입니다.`}
-        description="매출·구매·재고·서비스의 핵심 흐름과 오늘 처리할 항목을 한 화면에서 확인하세요."
+        description="매출·재고와 함께 Stratus 자산의 지원 만료, 미계약, 정기점검과 장애 업무를 한 화면에서 확인하세요."
         actions={<><Link className="button" href="/inventory">재고 원장</Link>{hasPermission(session.role, "documents:write") ? <Link className="button primary" href="/documents/quote">견적 작성</Link> : null}</>}
       />
 
@@ -36,6 +36,10 @@ export default async function DashboardPage() {
         <MetricCard label="이번 달 매입" value={formatMoney(metrics.monthPurchases)} helper="확정 매입 청구 기준" icon={ShoppingBag} tone="blue" />
         <MetricCard label="재주문 필요" value={`${metrics.lowStockCount}개 품목`} helper="가용재고가 기준 이하" icon={Boxes} tone="amber" />
         <MetricCard label="진행 서비스" value={`${metrics.openCases}건`} helper="접수·처리·대기 상태" icon={LifeBuoy} tone="coral" />
+        <MetricCard label="30일 내 점검" value={`${metrics.dueInspections}건`} helper="예정·진행·조치 필요" icon={CalendarCheck2} tone="blue" />
+        <MetricCard label="90일 내 지원 만료" value={`${metrics.expiringAssets}대`} helper="고객 안내·갱신 대상" icon={ClockAlert} tone="amber" />
+        <MetricCard label="지원 만료" value={`${metrics.expiredAssets}대`} helper="즉시 계약 확인 필요" icon={AlertTriangle} tone="coral" />
+        <MetricCard label="미계약 자산" value={`${metrics.uncontractedAssets}대`} helper="활성 자산 중 지원 공백" icon={CircleOff} tone="coral" />
       </section>
 
       <section className="section-grid">
@@ -62,7 +66,10 @@ export default async function DashboardPage() {
           <div className="card-body attention-list">
             <Link className="attention-item" href="/documents/quote"><div><strong>승인 대기 문서</strong><span>제출 후 승인되지 않은 문서</span></div><span className="attention-number">{metrics.pendingApprovals}</span></Link>
             <Link className="attention-item" href="/inventory"><div><strong>재주문 필요 품목</strong><span>안전 재고 이하</span></div><span className="attention-number">{metrics.lowStockCount}</span></Link>
-            <Link className="attention-item" href="/assets"><div><strong>90일 내 지원 만료</strong><span>고객 안내·갱신 대상</span></div><span className="attention-number">{metrics.expiringAssets}</span></Link>
+            <Link className="attention-item" href="/assets?support=expiring"><div><strong>90일 내 지원 만료</strong><span>고객 안내·갱신 대상</span></div><span className="attention-number">{metrics.expiringAssets}</span></Link>
+            <Link className="attention-item" href="/assets?support=expired"><div><strong>지원 만료 자산</strong><span>서비스 범위 즉시 확인</span></div><span className="attention-number">{metrics.expiredAssets}</span></Link>
+            <Link className="attention-item" href="/assets?support=not_contracted"><div><strong>미계약 자산</strong><span>고객·벤더 계약 공백</span></div><span className="attention-number">{metrics.uncontractedAssets}</span></Link>
+            <Link className="attention-item" href="/inspections?queue=due"><div><strong>30일 내 점검</strong><span>예정·진행·조치 필요</span></div><span className="attention-number">{metrics.dueInspections}</span></Link>
           </div>
         </article>
 

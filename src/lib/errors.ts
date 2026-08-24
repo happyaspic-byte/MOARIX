@@ -10,6 +10,15 @@ export function publicError(error: unknown, fallback = "요청을 처리하지 �
     if (error.message.includes("last active owner")) return "회사의 마지막 소유자는 비활성화하거나 역할을 변경할 수 없습니다.";
     if (error.message.includes("cannot manage an owner")) return "관리자는 소유자 계정을 변경할 수 없습니다.";
     if (error.message.includes("cannot assign the owner role")) return "소유자 역할은 현재 소유자만 지정할 수 있습니다.";
+    if (error.message.includes("Customer site mismatch")) return "선택한 사업장이 고객사에 속하지 않습니다.";
+    if (error.message.includes("Service case asset mismatch")) return "선택한 자산이 고객사에 속하지 않습니다.";
+    if (error.message.includes("Asset site is required")) return "사업장이 연결된 자산만 점검할 수 있습니다.";
+    if (error.message.includes("Invalid service case transition")) return "현재 상태에서 요청한 케이스 상태로 변경할 수 없습니다.";
+    if (error.message.includes("Invalid inspection transition")) return "현재 상태에서 요청한 점검 상태로 변경할 수 없습니다.";
+    if (error.message.includes("Waiting reason is required")) return "대기 상태로 변경하려면 대기 사유가 필요합니다.";
+    if (error.message.includes("Resolution summary is required")) return "해결 처리하려면 해결 내용을 입력하세요.";
+    if (error.message.includes("Inspection result is incomplete")) return "시스템·Protection·Sync·Service 점검 결과를 모두 입력하세요.";
+    if (error.message.includes("Inspection findings are required")) return "조치 필요 상태에서는 발견 사항을 입력하세요.";
   }
   return fallback;
 }

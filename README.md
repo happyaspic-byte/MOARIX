@@ -1,6 +1,6 @@
 # MOARIX
 
-MOARIX는 중소·중견 조직을 위한 멀티테넌트 영업·구매·재고·고객자산·서비스 ERP입니다. 특정 상용 제품의 소스나 화면을 복제하지 않고, 검증 가능한 업무 규칙과 감사 추적을 중심으로 독자 구현했습니다.
+MOARIX는 중소·중견 조직을 위한 멀티테넌트 영업·구매·재고 ERP이자 Stratus 고객 자산·지원·점검·장애 운영 시스템입니다. 특정 상용 제품의 소스나 화면을 복제하지 않고, 검증 가능한 업무 규칙과 감사 추적을 중심으로 독자 구현했습니다.
 
 현재 릴리스는 실제 데이터를 저장하고 역할별 권한을 검사하는 운영 코어입니다. 외부 세금계산서·결제·메일 연동처럼 사업자별 계약이 필요한 기능은 [로드맵](docs/ROADMAP.md)에 분리되어 있습니다.
 
@@ -15,8 +15,12 @@ MOARIX는 중소·중견 조직을 위한 멀티테넌트 영업·구매·재고
 - 정확한 Decimal 금액·할인·부가세 계산
 - 창고별 재고, 입고·출고·실사 조정, 음수 재고 방지
 - 중복 전송 방지 키와 추가 전용 재고 원장
-- 고객 설치 자산, 보증·지원 만료, 서비스 케이스
-- 대시보드, 표준 실적·재고 평가 보고서
+- 고객사별 국내·해외 사업장과 현장 담당자·시간대
+- Stratus Asset ID, everRun·ztC·ftServer, 버전·HA/FT·OS·지원 방식
+- 계약·갱신·만료·미계약과 D-90 지원 업무 큐
+- Protection·Sync·Service와 자원 사용률을 기록하는 정기점검
+- 고객·자산 일치 검증, 외부 Stratus CS 번호와 서비스 케이스 상태 흐름
+- 대시보드, 표준 실적·재고 평가·지원 계약·점검 운영 보고서
 - 추가 전용 감사 로그와 운영 헬스체크
 - 반응형 한국어 UI, Docker/PostgreSQL 운영 구성
 
@@ -53,6 +57,7 @@ npm run dev
 ```bash
 export SESSION_SECRET="$(openssl rand -base64 48)"
 export POSTGRES_PASSWORD="replace-with-a-strong-database-password"
+export DATABASE_APP_PASSWORD="replace-with-a-different-strong-app-password"
 export COOKIE_SECURE=false
 docker compose up -d --build
 ```
@@ -78,6 +83,8 @@ docker compose run --rm \
 |---|---|---|
 | `DATABASE_DRIVER` | `local` 또는 `postgres` | 운영은 `postgres` 권장 |
 | `DATABASE_URL` | PostgreSQL 연결 문자열 | 비밀 저장소 사용 |
+| `DATABASE_APP_USER` | 마이그레이션 시 만들 제한 앱 역할 | Compose 기본 `moarix_app` |
+| `DATABASE_APP_PASSWORD` | 제한 앱 역할 비밀번호 | DB 소유자 암호와 반드시 분리 |
 | `LOCAL_DATABASE_PATH` | PGlite 저장 경로 | 로컬 개발 전용 |
 | `SESSION_SECRET` | 세션 토큰 HMAC 키 | 최소 32자, 환경별 분리 |
 | `COOKIE_SECURE` | Secure 쿠키 강제 여부 | HTTPS에서 `true` |
@@ -117,11 +124,12 @@ E2E_PASSWORD="$SEED_DEMO_PASSWORD" npm run test:e2e
 
 브라우저 검증은 정적 자산을 포함한 Next.js standalone 런타임을 직접 기동하여 운영 번들과 동일한 서버 경로를 검사합니다.
 
-CI는 린트, 타입 검사, 커버리지, 마이그레이션, 프로덕션 빌드, 도메인/HTTP 스모크, Playwright, Docker 빌드를 모두 검사합니다.
+CI는 린트, 타입 검사, 커버리지, 마이그레이션, 프로덕션 빌드, 도메인/HTTP 스모크, Playwright, Docker 빌드와 실제 PostgreSQL 17의 제한 역할·RLS 교차 테넌트 차단을 모두 검사합니다.
 
 ## 운영 전 필수 점검
 
 - PostgreSQL 백업과 복구 리허설
+- DB 소유자와 `NOSUPERUSER NOBYPASSRLS` 애플리케이션 역할 분리
 - HTTPS, `COOKIE_SECURE=true`, 비밀 관리 시스템
 - 메일·세금계산서·결제 등 외부 연동의 샌드박스 검증
 - 회사별 역할·승인 정책과 개인정보 보유 기간

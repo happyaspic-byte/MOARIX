@@ -52,9 +52,11 @@ test("authenticates and keeps ERP navigation accessible", async ({ page }) => {
     ["/documents/invoice", "매출 청구"],
     ["/documents/bill", "매입 청구"],
     ["/inventory", "재고·원장"],
-    ["/assets", "고객 자산"],
-    ["/service", "서비스 케이스"],
-    ["/reports", "표준 보고서"],
+    ["/sites", "고객 사업장"],
+    ["/assets", "자산·지원 계약"],
+    ["/inspections", "정기점검"],
+    ["/service", "장애·지원 케이스"],
+    ["/reports", "표준·운영 보고서"],
     ["/admin/users", "사용자·역할"],
     ["/admin/audit", "감사 로그"],
   ];
@@ -78,6 +80,57 @@ test("creates a counterparty through the browser", async ({ page }) => {
   await drawer.getByRole("button", { name: "거래처 등록" }).click();
   await expect(page.getByText("거래처를 등록했습니다.")).toBeVisible();
   await expect(page.getByText(`브라우저 검증 고객 ${suffix}`)).toBeVisible();
+});
+
+test("connects a customer site, Stratus asset and inspection", async ({ page }) => {
+  test.skip(!password, "E2E_PASSWORD is required");
+  await login(page, "/counterparties");
+
+  const suffix = Date.now().toString(36).toUpperCase();
+  const customerName = `운영 검증 고객 ${suffix}`;
+  const siteName = `검증 1공장 ${suffix}`;
+  const assetTag = `OPS-${suffix}`;
+  const vendorAssetId = `ee-${suffix.toLowerCase()}`;
+
+  await page.locator("summary", { hasText: "거래처 등록" }).click();
+  let drawer = page.locator(".create-drawer");
+  await drawer.getByLabel("거래처 코드 *").fill(`OPS-${suffix}`);
+  await drawer.getByLabel("거래처명 *").fill(customerName);
+  await drawer.getByRole("button", { name: "거래처 등록" }).click();
+  await expect(page.locator(".data-table").getByText(customerName)).toBeVisible();
+
+  await page.goto("/sites");
+  await page.locator("summary", { hasText: "사업장 등록" }).click();
+  drawer = page.locator(".create-drawer");
+  await drawer.getByLabel("고객사 *").selectOption({ label: `OPS-${suffix} · ${customerName}` });
+  await drawer.getByLabel("사업장 코드 *").fill(`PLANT-${suffix}`);
+  await drawer.getByLabel("사업장명 *").fill(siteName);
+  await drawer.getByRole("button", { name: "사업장 등록" }).click();
+  await expect(page.locator(".data-table").getByText(siteName)).toBeVisible();
+
+  await page.goto("/assets");
+  await page.locator("summary", { hasText: "자산 등록" }).click();
+  drawer = page.locator(".create-drawer");
+  await drawer.getByLabel("고객사 *").selectOption({ label: `OPS-${suffix} · ${customerName}` });
+  await drawer.getByLabel("사업장 *").selectOption({ label: `PLANT-${suffix} · ${siteName}` });
+  await drawer.getByLabel("내부 자산 태그 *").fill(assetTag);
+  await drawer.getByLabel("Stratus Asset ID").fill(vendorAssetId);
+  await drawer.getByLabel("제품명 *").fill("everRun 운영 검증 시스템");
+  await drawer.getByLabel("계약 상태 *").selectOption("not_contracted");
+  await drawer.getByRole("button", { name: "자산 등록" }).click();
+  await expect(page.locator(".data-table").getByText(vendorAssetId)).toBeVisible();
+  await expect(page.locator(".data-table").getByText("미계약")).toBeVisible();
+
+  await page.goto("/inspections");
+  await page.locator("summary", { hasText: "점검 예약" }).click();
+  drawer = page.locator(".create-drawer");
+  await drawer.getByLabel("점검 자산 *").selectOption({ label: `${customerName} · ${siteName} · ${vendorAssetId}` });
+  await drawer.getByLabel("예정일 *").fill(new Date().toISOString().slice(0, 10));
+  await drawer.getByRole("button", { name: "점검 일정 등록" }).click();
+  await expect(page.locator(".data-table").getByText(assetTag)).toBeVisible();
+
+  const accessibility = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze();
+  expect(accessibility.violations.filter((violation) => violation.impact === "critical")).toEqual([]);
 });
 
 test("keeps core navigation usable on a mobile viewport", async ({ page }) => {

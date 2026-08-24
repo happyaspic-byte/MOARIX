@@ -4,15 +4,27 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_DB: moarix
-      POSTGRES_USER: moarix
+      POSTGRES_USER: moarix_owner
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-this-database-password}
     volumes:
       - moarix_postgres:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U moarix -d moarix"]
+      test: ["CMD-SHELL", "pg_isready -U moarix_owner -d moarix"]
       interval: 5s
       timeout: 5s
       retries: 12
+
+  migrate:
+    build: .
+    depends_on:
+      database:
+        condition: service_healthy
+    environment:
+      DATABASE_DRIVER: postgres
+      DATABASE_URL: postgresql://moarix_owner:${POSTGRES_PASSWORD:-change-this-database-password}@database:5432/moarix
+      DATABASE_APP_USER: moarix_app
+      DATABASE_APP_PASSWORD: ${DATABASE_APP_PASSWORD:-change-this-app-database-password}
+    command: ["node", "scripts/migrate-runtime.mjs"]
 
   app:
     build: .
@@ -20,13 +32,16 @@ services:
     depends_on:
       database:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     environment:
       DATABASE_DRIVER: postgres
-      DATABASE_URL: postgresql://moarix:${POSTGRES_PASSWORD:-change-this-database-password}@database:5432/moarix
+      DATABASE_URL: postgresql://moarix_app:${DATABASE_APP_PASSWORD:-change-this-app-database-password}@database:5432/moarix
       SESSION_SECRET: ${SESSION_SECRET:?Set SESSION_SECRET to at least 32 random characters}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
     ports:
       - "${PORT:-3000}:3000"
+    command: ["node", "server.js"]
 
 volumes:
   moarix_postgres:

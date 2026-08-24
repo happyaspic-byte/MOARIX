@@ -16,6 +16,8 @@ export async function createAssetAction(_state: FormState, formData: FormData): 
     revalidatePath("/assets");
     revalidatePath("/service");
     revalidatePath("/dashboard");
+    revalidatePath("/reports");
+    revalidatePath("/inspections");
     return { status: "success", message: "고객 자산을 등록했습니다." };
   } catch (error) {
     return { status: "error", message: publicError(error, "고객 자산을 등록하지 못했습니다.") };

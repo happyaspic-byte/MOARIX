@@ -1,12 +1,18 @@
 import { z } from "zod";
 import { documentKinds } from "@/lib/services/documents";
 import { documentStatuses } from "@/lib/domain/document-state";
+import { inspectionStatuses } from "@/lib/domain/inspection-state";
+import { serviceCaseStatuses } from "@/lib/domain/service-case-state";
 import { roles } from "@/lib/security/permissions";
 
 const trimmed = (max: number) => z.string().trim().min(1).max(max);
 const optionalText = (max: number) => z.string().trim().max(max).optional().or(z.literal(""));
 const decimalText = z.string().trim().regex(/^-?\d+(\.\d{1,4})?$/, "숫자는 소수점 넷째 자리까지만 입력하세요.");
 const nonNegativeDecimal = decimalText.refine((value) => !value.startsWith("-"), "0 이상의 값을 입력하세요.");
+const optionalPercentage = z.preprocess(
+  (value) => value === "" || value === undefined ? undefined : value,
+  z.coerce.number().min(0).max(100).optional(),
+);
 
 export const loginSchema = z.object({
   email: z.email().max(254).transform((value) => value.trim().toLowerCase()),
@@ -75,13 +81,28 @@ export const inventoryMovementSchema = z.object({
 
 export const assetSchema = z.object({
   counterpartyId: z.uuid(),
+  siteId: z.uuid(),
   assetTag: trimmed(50).transform((value) => value.toUpperCase()),
+  vendorAssetId: optionalText(120),
   productName: trimmed(160),
+  productFamily: z.enum(["everrun", "ztc_endurance", "ztc_edge", "ftserver", "other"]),
+  productModel: optionalText(120),
+  softwareVersion: optionalText(120),
+  protectionMode: z.enum(["ha", "ft", "mixed", "none", "other"]),
+  operatingSystem: optionalText(160),
+  managementIp: optionalText(200),
   serialNumber: optionalText(120),
-  site: optionalText(200),
+  serviceMethod: z.enum(["remote", "visit", "hybrid"]),
+  contractStatus: z.enum(["active", "pending_renewal", "not_contracted", "expired"]),
+  contractNumber: optionalText(120),
+  channelPartner: optionalText(160),
+  supportProvider: optionalText(160),
+  supportLevel: optionalText(80),
+  supportStartedAt: z.union([z.iso.date(), z.literal("")]).optional(),
   installedAt: z.union([z.iso.date(), z.literal("")]).optional(),
   warrantyUntil: z.union([z.iso.date(), z.literal("")]).optional(),
   supportUntil: z.union([z.iso.date(), z.literal("")]).optional(),
+  nextInspectionDate: z.union([z.iso.date(), z.literal("")]).optional(),
   notes: optionalText(2000),
 });
 
@@ -92,6 +113,52 @@ export const serviceCaseSchema = z.object({
   description: optionalText(5000),
   severity: z.enum(["low", "normal", "high", "critical"]),
   dueAt: z.union([z.iso.datetime({ local: true }), z.literal("")]).optional(),
+  externalProvider: optionalText(80),
+  externalCaseNumber: optionalText(120),
+}).superRefine((value, context) => {
+  if (value.externalCaseNumber && !value.externalProvider) {
+    context.addIssue({ code: "custom", path: ["externalProvider"], message: "외부 케이스 번호가 있으면 지원사를 입력하세요." });
+  }
+});
+
+export const serviceCaseTransitionSchema = z.object({
+  caseId: z.uuid(),
+  nextStatus: z.enum(serviceCaseStatuses),
+  waitingReason: optionalText(1000),
+  resolutionSummary: optionalText(2000),
+});
+
+export const customerSiteSchema = z.object({
+  counterpartyId: z.uuid(),
+  code: trimmed(30).transform((value) => value.toUpperCase()),
+  name: trimmed(120),
+  address: optionalText(300),
+  contactName: optionalText(80),
+  contactPhone: optionalText(30),
+  contactEmail: z.union([z.email().max(254), z.literal("")]).optional(),
+  timezone: z.enum(["Asia/Seoul", "Europe/Prague", "UTC"]),
+});
+
+export const inspectionSchema = z.object({
+  assetId: z.uuid(),
+  inspectionType: z.enum(["installation", "preventive", "quarterly", "incident", "upgrade"]),
+  scheduledDate: z.iso.date(),
+  reportReference: optionalText(300),
+});
+
+export const inspectionTransitionSchema = z.object({
+  inspectionId: z.uuid(),
+  nextStatus: z.enum(inspectionStatuses),
+  systemHealth: z.enum(["healthy", "warning", "critical", "unknown"]).optional(),
+  protectionStatus: z.enum(["pass", "warning", "fail", "na"]).optional(),
+  syncStatus: z.enum(["pass", "warning", "fail", "na"]).optional(),
+  serviceStatus: z.enum(["pass", "warning", "fail", "na"]).optional(),
+  cpuPercent: optionalPercentage,
+  memoryPercent: optionalPercentage,
+  diskPercent: optionalPercentage,
+  findings: optionalText(5000),
+  actionItems: optionalText(5000),
+  nextInspectionDate: z.union([z.iso.date(), z.literal("")]).optional(),
 });
 
 export const memberSchema = z.object({

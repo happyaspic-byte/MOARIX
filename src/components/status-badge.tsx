@@ -16,6 +16,19 @@ const statusLabels: Record<string, string> = {
   normal: "보통",
   high: "높음",
   critical: "긴급",
+  covered: "지원 정상",
+  expiring: "갱신 필요",
+  expired: "지원 만료",
+  not_contracted: "미계약",
+  unknown: "미등록",
+  scheduled: "예정",
+  completed: "완료",
+  issue_found: "조치 필요",
+  healthy: "정상",
+  warning: "주의",
+  pass: "PASS",
+  fail: "FAIL",
+  na: "N/A",
 };
 
 export function StatusBadge({ status }: { status: string }) {
