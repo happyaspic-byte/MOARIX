@@ -145,14 +145,39 @@ async function seed() {
                CURRENT_DATE + 14, $5, $5, '고객 정기점검 양식')`,
       [randomUUID(), companyId, assetId, siteId, userId],
     );
+    const serviceCaseId = randomUUID();
     await tx.query(
       `INSERT INTO service_cases
-         (id, company_id, number, counterparty_id, asset_id, title, description, severity,
-          status, assigned_to, due_at, created_by, external_provider, external_case_number)
-       VALUES ($1, $2, 'CS-DEMO-0001', $3, $4, '정기 점검 일정 확인',
-               '3분기 예방 점검 일정을 고객과 협의합니다.', 'normal', 'open', $5,
-               now() + interval '14 days', $5, 'Stratus', 'CS-DEMO-0001')`,
-      [randomUUID(), companyId, customerId, assetId, userId],
+         (id, company_id, number, counterparty_id, asset_id, case_type, title, description,
+          severity, max_severity, status, assigned_to, due_at, next_action_at, created_by,
+          contact_name, contact_email, contact_phone, entitlement, external_provider,
+          external_case_number, external_state, source_url)
+       VALUES ($1, $2, 'CS-DEMO-0001', $3, $4, 'incident', 'FT VM 메모리 동기화 지연',
+               'FT 가상 머신의 메모리 동기화가 반복적으로 지연됩니다.\n가용성 링크 상태와 노드 자원 사용률을 함께 확인해 주세요.',
+               'normal', 'high', 'in_progress', $5, now() + interval '14 days',
+               now() + interval '2 days', $5, '데모 고객 담당자', 'operator@example.com',
+               '055-000-0000', 'everRun Demo Support 24x7', 'Demo Support',
+               'CS-DEMO-EXT-0001', 'Investigating', 'https://support.example.invalid/case/CS-DEMO-EXT-0001')`,
+      [serviceCaseId, companyId, customerId, assetId, userId],
+    );
+    await tx.query(
+      `INSERT INTO service_case_activities
+         (id, company_id, case_id, kind, visibility, body, author_name, occurred_at, created_by)
+       VALUES
+         ($1, $3, $4, 'system', 'shared', '케이스가 접수되었습니다.', '관리자', now() - interval '2 days', $5),
+         ($2, $3, $4, 'vendor_reply', 'shared',
+          '진단 결과 가용성 링크에서 패킷 손실이 관찰되었습니다.\n케이블을 한 개씩 교체한 뒤 오류 카운터와 동기화 상태를 다시 확인해 주세요.',
+          'Demo Support Engineer', now() - interval '1 day', $5)`,
+      [randomUUID(), randomUUID(), companyId, serviceCaseId, userId],
+    );
+    await tx.query(
+      `INSERT INTO service_case_attachments
+         (id, company_id, case_id, file_name, source_url, content_type, size_bytes,
+          description, uploaded_by, occurred_at)
+       VALUES ($1, $2, $3, 'diagnostic-bundle-demo.zip',
+               'https://storage.example.invalid/demo/diagnostic-bundle-demo.zip',
+               'application/zip', 414187520, '합성 데모 진단 번들 링크', $4, now() - interval '2 days')`,
+      [randomUUID(), companyId, serviceCaseId, userId],
     );
     await tx.query(
       `INSERT INTO audit_logs

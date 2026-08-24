@@ -7,6 +7,14 @@ import { roles } from "@/lib/security/permissions";
 
 const trimmed = (max: number) => z.string().trim().min(1).max(max);
 const optionalText = (max: number) => z.string().trim().max(max).optional().or(z.literal(""));
+const optionalHttpsUrl = z.string().trim().max(2048).refine((value) => {
+  if (!value) return true;
+  try {
+    return new URL(value).protocol === "https:";
+  } catch {
+    return false;
+  }
+}, "HTTPS 주소를 입력하세요.").optional().or(z.literal(""));
 const decimalText = z.string().trim().regex(/^-?\d+(\.\d{1,4})?$/, "숫자는 소수점 넷째 자리까지만 입력하세요.");
 const nonNegativeDecimal = decimalText.refine((value) => !value.startsWith("-"), "0 이상의 값을 입력하세요.");
 const optionalPercentage = z.preprocess(
@@ -109,15 +117,26 @@ export const assetSchema = z.object({
 export const serviceCaseSchema = z.object({
   counterpartyId: z.uuid(),
   assetId: z.union([z.uuid(), z.literal("")]).optional(),
+  caseType: z.enum(["incident", "request", "question", "maintenance"]),
   title: trimmed(200),
-  description: optionalText(5000),
+  description: optionalText(20000),
   severity: z.enum(["low", "normal", "high", "critical"]),
   dueAt: z.union([z.iso.datetime({ local: true }), z.literal("")]).optional(),
+  nextActionAt: z.union([z.iso.datetime({ local: true }), z.literal("")]).optional(),
+  contactName: optionalText(120),
+  contactEmail: z.union([z.email().max(254), z.literal("")]).optional(),
+  contactPhone: optionalText(30),
+  entitlement: optionalText(160),
   externalProvider: optionalText(80),
   externalCaseNumber: optionalText(120),
+  externalState: optionalText(80),
+  sourceUrl: optionalHttpsUrl,
 }).superRefine((value, context) => {
   if (value.externalCaseNumber && !value.externalProvider) {
     context.addIssue({ code: "custom", path: ["externalProvider"], message: "외부 케이스 번호가 있으면 지원사를 입력하세요." });
+  }
+  if (value.sourceUrl && !value.externalProvider) {
+    context.addIssue({ code: "custom", path: ["externalProvider"], message: "외부 원문 주소가 있으면 지원사를 입력하세요." });
   }
 });
 
@@ -125,7 +144,39 @@ export const serviceCaseTransitionSchema = z.object({
   caseId: z.uuid(),
   nextStatus: z.enum(serviceCaseStatuses),
   waitingReason: optionalText(1000),
-  resolutionSummary: optionalText(2000),
+  resolutionSummary: optionalText(20000),
+  nextActionAt: z.union([z.iso.datetime({ local: true }), z.literal("")]).optional(),
+});
+
+export const serviceCaseActivitySchema = z.object({
+  caseId: z.uuid(),
+  kind: z.enum(["comment", "internal_note", "vendor_reply", "customer_reply"]),
+  authorName: optionalText(120),
+  body: trimmed(20000),
+  occurredAt: z.union([z.iso.datetime({ local: true }), z.literal("")]).optional(),
+}).superRefine((value, context) => {
+  if ((value.kind === "vendor_reply" || value.kind === "customer_reply") && !value.authorName) {
+    context.addIssue({ code: "custom", path: ["authorName"], message: "외부 회신의 작성자를 입력하세요." });
+  }
+});
+
+export const serviceCaseAttachmentSchema = z.object({
+  caseId: z.uuid(),
+  fileName: trimmed(255),
+  sourceUrl: z.string().trim().max(2048).refine((value) => {
+    try {
+      return new URL(value).protocol === "https:";
+    } catch {
+      return false;
+    }
+  }, "HTTPS 다운로드 주소를 입력하세요."),
+  contentType: optionalText(120),
+  sizeMb: z.preprocess(
+    (value) => value === "" || value === undefined ? undefined : value,
+    z.coerce.number().min(0).max(102400).optional(),
+  ),
+  description: optionalText(500),
+  occurredAt: z.union([z.iso.datetime({ local: true }), z.literal("")]).optional(),
 });
 
 export const customerSiteSchema = z.object({

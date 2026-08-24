@@ -4,7 +4,7 @@ import path from "node:path";
 import { authenticate, findSession } from "../src/lib/auth/repository";
 import { getDatabase } from "../src/lib/db/client";
 import { hashSessionToken } from "../src/lib/security/session-token";
-import { createAsset, createServiceCase, listAssetsAndCases, transitionServiceCase } from "../src/lib/services/assets-service";
+import { createAsset, listAssets } from "../src/lib/services/assets-service";
 import { createMember, listAuditLogs, listMembers, updateMember } from "../src/lib/services/admin";
 import { getDashboard } from "../src/lib/services/dashboard";
 import { createDocument, listDocuments, transitionDocument } from "../src/lib/services/documents";
@@ -12,6 +12,7 @@ import { listInventory, postInventoryMovement } from "../src/lib/services/invent
 import { createCounterparty, createItem, createWarehouse } from "../src/lib/services/master-data";
 import { getStandardReports } from "../src/lib/services/reports";
 import { createCustomerSite, createInspection, listCustomerSites, listInspections, transitionInspection } from "../src/lib/services/operations-service";
+import { appendServiceCaseActivity, createServiceCase, getServiceCaseDetail, listServiceCases, registerServiceCaseAttachment, transitionServiceCase } from "../src/lib/services/service-cases";
 
 const email = process.env.SMOKE_EMAIL ?? "admin@moarix.local";
 const password = process.env.SMOKE_PASSWORD;
@@ -127,17 +128,26 @@ async function exerciseDomain() {
   const service = await createServiceCase(session, {
     counterpartyId,
     assetId,
+    caseType: "incident",
     title: `런타임 검증 케이스 ${suffix}`,
+    description: "FT 동기화 지연이 반복됩니다.\n진단 로그를 확인해 주세요.",
     severity: "high",
+    contactName: "검증 담당자",
+    entitlement: "24x7 Demo Support",
     externalProvider: "Stratus",
     externalCaseNumber: `CS-${suffix}`,
+    sourceUrl: `https://support.example.invalid/case/${suffix}`,
   });
+  await appendServiceCaseActivity(session, { caseId: service.id, kind: "vendor_reply", authorName: "Demo Support", body: "네트워크 오류 카운터와 메모리 사용률을 확인했습니다.\n케이블을 한 개씩 교체해 주세요." });
+  await registerServiceCaseAttachment(session, { caseId: service.id, fileName: `diagnostic-${suffix}.zip`, sourceUrl: `https://storage.example.invalid/${suffix}/diagnostic.zip`, contentType: "application/zip", sizeMb: 395 });
+  await transitionServiceCase(session, { caseId: service.id, nextStatus: "in_progress" });
+  await transitionServiceCase(session, { caseId: service.id, nextStatus: "waiting", waitingReason: "고객 작업 일정 확인 대기" });
   await transitionServiceCase(session, { caseId: service.id, nextStatus: "in_progress" });
   await transitionServiceCase(session, { caseId: service.id, nextStatus: "resolved", resolutionSummary: "런타임 검증 해결" });
   await transitionServiceCase(session, { caseId: service.id, nextStatus: "closed" });
   let mismatchedAssetRejected = false;
   try {
-    await createServiceCase(session, { counterpartyId: otherCustomerId, assetId, title: "잘못된 고객 자산 연결", severity: "normal" });
+    await createServiceCase(session, { counterpartyId: otherCustomerId, assetId, caseType: "incident", title: "잘못된 고객 자산 연결", severity: "normal" });
   } catch (error) {
     mismatchedAssetRejected = error instanceof Error && error.message.includes("asset mismatch");
   }
@@ -163,9 +173,13 @@ async function exerciseDomain() {
     findings: "이상 없음",
     actionItems: "다음 분기 재점검",
   });
-  const assetsAndCases = await listAssetsAndCases(session.companyId);
-  invariant(assetsAndCases.assets.some((row) => row.id === assetId), "Created asset was not listed");
-  invariant(assetsAndCases.cases.some((row) => row.id === service.id && row.status === "closed"), "Service case workflow did not reach closed");
+  const [assets, cases, caseDetail] = await Promise.all([listAssets(session.companyId), listServiceCases(session.companyId), getServiceCaseDetail(session.companyId, service.id)]);
+  invariant(assets.some((row) => row.id === assetId), "Created asset was not listed");
+  invariant(cases.some((row) => row.id === service.id && row.status === "closed"), "Service case workflow did not reach closed");
+  invariant(caseDetail, "Created service case detail was not found");
+  invariant(caseDetail.detail.waiting_reason === null && caseDetail.detail.resolution_summary === "런타임 검증 해결", "Resolved case retained stale waiting state");
+  invariant(caseDetail.activities.some((row) => row.kind === "vendor_reply" && row.body.includes("네트워크 오류")), "Service case activity was not preserved");
+  invariant(caseDetail.attachments.some((row) => row.file_name === `diagnostic-${suffix}.zip` && row.size_bytes === String(395 * 1024 * 1024)), "Service case attachment metadata was not preserved");
   invariant((await listCustomerSites(session.companyId)).some((row) => row.id === siteId), "Created customer site was not listed");
   invariant((await listInspections(session.companyId)).some((row) => row.id === inspection.id && row.status === "completed"), "Inspection workflow did not reach completed");
 
@@ -209,7 +223,7 @@ async function exerciseDomain() {
   );
   invariant(limiter.rows[0]?.attempt_count === 5 && limiter.rows[0].blocked, "Login throttling did not block the fifth failure");
   await database.close();
-  return auth.token;
+  return { token: auth.token, serviceCaseId: service.id };
 }
 
 async function waitUntilReady(origin: string, logs: () => string) {
@@ -226,7 +240,7 @@ async function waitUntilReady(origin: string, logs: () => string) {
   throw new Error(`Server did not become ready.\n${logs()}`);
 }
 
-async function exerciseHttp(token: string) {
+async function exerciseHttp(token: string, serviceCaseId: string) {
   const origin = `http://127.0.0.1:${port}`;
   const nextBinary = path.join(process.cwd(), "node_modules", "next", "dist", "bin", "next");
   const child = spawn(process.execPath, [nextBinary, "start", "-H", "127.0.0.1", "-p", String(port)], {
@@ -254,7 +268,8 @@ async function exerciseHttp(token: string) {
       ["/sites", "고객 사업장"],
       ["/assets", "자산·지원 계약"],
       ["/inspections", "정기점검"],
-      ["/service", "장애·지원 케이스"],
+      ["/service", "서비스 케이스"],
+      [`/service/${serviceCaseId}`, "서비스 케이스 상세"],
       ["/reports", "표준·운영 보고서"],
       ["/admin/users", "사용자·역할"],
       ["/admin/audit", "감사 로그"],
@@ -282,6 +297,6 @@ async function exerciseHttp(token: string) {
   }
 }
 
-const token = await exerciseDomain();
-await exerciseHttp(token);
-console.info("Runtime smoke passed: domain workflows, auth hardening and 13 authenticated pages verified.");
+const smoke = await exerciseDomain();
+await exerciseHttp(smoke.token, smoke.serviceCaseId);
+console.info("Runtime smoke passed: domain workflows, auth hardening and 14 authenticated pages verified.");

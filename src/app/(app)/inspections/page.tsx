@@ -8,7 +8,7 @@ import { StatusBadge } from "@/components/status-badge";
 import { requirePermission } from "@/lib/auth/current";
 import { hasPermission } from "@/lib/security/permissions";
 import { dateInTimeZone } from "@/lib/domain/company-date";
-import { listAssetsAndCases } from "@/lib/services/assets-service";
+import { listAssets } from "@/lib/services/assets-service";
 import { listInspections } from "@/lib/services/operations-service";
 import { InspectionForm } from "./inspection-form";
 import { InspectionResultForm, QuickInspectionAction } from "./inspection-transition-forms";
@@ -20,7 +20,7 @@ const inspectionTypeLabels = { installation: "설치", preventive: "예방", qua
 
 export default async function InspectionsPage({ searchParams }: { searchParams: Promise<{ queue?: string }> }) {
   const session = await requirePermission("service:read");
-  const [inspections, { assets }] = await Promise.all([listInspections(session.companyId), listAssetsAndCases(session.companyId)]);
+  const [inspections, assets] = await Promise.all([listInspections(session.companyId), listAssets(session.companyId)]);
   const { queue } = await searchParams;
   const horizon = new Date(`${dateInTimeZone(session.companyTimezone)}T12:00:00.000Z`);
   horizon.setDate(horizon.getDate() + 30);
