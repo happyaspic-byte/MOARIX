@@ -129,8 +129,9 @@ test("validates the seeded Stratus asset 360 workspace and risk-first queue", as
 
   await tabs.getByRole("link", { name: "노드·네트워크" }).click();
   await expect(page).toHaveURL((url) => url.pathname === assetPath && url.searchParams.get("tab") === "infrastructure");
-  await expect(page.getByText("DEMO-NODE0", { exact: true })).toBeVisible();
-  await expect(page.getByText("DEMO-NODE1", { exact: true })).toBeVisible();
+  const nodeTable = page.getByRole("table", { name: "노드 구성" });
+  await expect(nodeTable.getByText("DEMO-NODE0", { exact: true })).toBeVisible();
+  await expect(nodeTable.getByText("DEMO-NODE1", { exact: true })).toBeVisible();
   await expect(page.getByText("A-Link Node0", { exact: true })).toBeVisible();
   await expect(page.getByText("A-Link Node1", { exact: true })).toBeVisible();
   await expect(page.getByText("198.51.100.21", { exact: true })).toBeVisible();
