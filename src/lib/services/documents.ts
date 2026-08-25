@@ -3,6 +3,7 @@ import { withCompany } from "@/lib/db/client";
 import type { SessionContext } from "@/lib/auth/repository";
 import { calculateLine } from "@/lib/domain/money";
 import { assertDocumentTransition, type DocumentStatus } from "@/lib/domain/document-state";
+import { dateInTimeZone } from "@/lib/domain/company-date";
 import { assertPermission } from "@/lib/security/permissions";
 import { writeAudit } from "./audit";
 
@@ -59,22 +60,24 @@ async function nextDocumentNumber(
   tx: Parameters<Parameters<typeof withCompany>[1]>[0],
   companyId: string,
   kind: DocumentKind,
+  year: string,
 ) {
+  const counterKind = `${kind}:${year}`;
   await tx.query(
     `INSERT INTO document_counters (company_id, kind, next_value)
      VALUES ($1, $2, 1)
      ON CONFLICT (company_id, kind) DO NOTHING`,
-    [companyId, kind],
+    [companyId, counterKind],
   );
   const result = await tx.query<{ value: string }>(
     `UPDATE document_counters
      SET next_value = next_value + 1
      WHERE company_id = $1 AND kind = $2
      RETURNING (next_value - 1)::text AS value`,
-    [companyId, kind],
+    [companyId, counterKind],
   );
   const value = Number(result.rows[0]?.value ?? 1);
-  return `${documentPrefixes[kind]}-${new Date().getFullYear()}-${String(value).padStart(5, "0")}`;
+  return `${documentPrefixes[kind]}-${year}-${String(value).padStart(5, "0")}`;
 }
 
 export type CreateDocumentInput = {
@@ -108,7 +111,8 @@ export function createDocument(session: SessionContext, input: CreateDocumentInp
     );
     if (!counterparty.rows[0]) throw new Error("Counterparty not found");
 
-    const number = await nextDocumentNumber(tx, session.companyId, input.kind);
+    const year = dateInTimeZone(session.companyTimezone).slice(0, 4);
+    const number = await nextDocumentNumber(tx, session.companyId, input.kind, year);
     const amounts = calculateLine({
       quantity: input.quantity,
       unitPrice: input.unitPrice,

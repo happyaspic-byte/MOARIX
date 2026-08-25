@@ -121,7 +121,7 @@ async function seed() {
           support_started_at, installed_at, warranty_until, support_until, next_inspection_date, notes)
        VALUES ($1, $2, $3, $4, 'AST-0001', 'ee-demo-001',
                'everRun Enterprise 이중화 시스템', 'everrun', 'Demo Platform', '8.0 demo', 'ft',
-               'Windows Server Demo', '10.0.0.10', 'DEMO-SN-001', 'active', 'hybrid',
+               'Windows Server Demo', '192.0.2.10', 'SYNTHETIC-SN-001', 'active', 'hybrid',
                'pending_renewal', 'SUP-DEMO-2026-001', '데모 파트너', 'Stratus', '24x7',
                CURRENT_DATE - 275, CURRENT_DATE - 275, CURRENT_DATE + 90, CURRENT_DATE + 45, CURRENT_DATE + 14, '분기 점검 대상')`,
       [assetId, companyId, customerId, siteId],
@@ -137,14 +137,143 @@ async function seed() {
                'active', 'remote', 'not_contracted', CURRENT_DATE - 60, '미계약 경보 검증용 데모 자산')`,
       [uncoveredAssetId, companyId, customerId, siteId],
     );
+
+    await tx.query(
+      `UPDATE assets
+       SET business_system = '합성 생산 실행 시스템',
+           environment = 'test',
+           hardware_vendor = 'Synthetic Fault-Tolerant Systems',
+           rack_location = 'LAB-RACK-A01',
+           hypervisor = 'everRun Synthetic Hypervisor',
+           assigned_engineer_id = $2,
+           configuration_source = 'inspection',
+           configuration_checked_at = now() - interval '1 day'
+       WHERE id = $1`,
+      [assetId, userId],
+    );
+
+    const node0Id = randomUUID();
+    const node1Id = randomUUID();
+    await tx.query(
+      `INSERT INTO asset_nodes
+         (id, company_id, asset_id, role, name, hardware_model, serial_number,
+          operating_system, status, management_address, bmc_address, cpu_cores,
+          memory_gb, source, last_verified_at, notes, created_by)
+       VALUES
+         ($1, $3, $4, 'node0', 'DEMO-NODE0', 'Synthetic Compute Node',
+          'SYN-NODE0-0001', 'everRun Synthetic Host', 'active', '192.0.2.11',
+          '198.51.100.11', 16, 128, 'inspection', now() - interval '1 day',
+          '합성 Node0 구성 데이터', $5),
+         ($2, $3, $4, 'node1', 'DEMO-NODE1', 'Synthetic Compute Node',
+          'SYN-NODE1-0001', 'everRun Synthetic Host', 'standby', '192.0.2.12',
+          '198.51.100.12', 16, 128, 'inspection', now() - interval '1 day',
+          '합성 Node1 구성 데이터', $5)`,
+      [node0Id, node1Id, companyId, assetId, userId],
+    );
+    await tx.query(
+      `INSERT INTO asset_network_interfaces
+         (id, company_id, asset_id, node_id, label, purpose, address, peer_address,
+          mac_address, speed_mbps, switch_port, redundancy_group, status, source,
+          last_verified_at, notes, created_by)
+       VALUES
+         ($1, $3, $4, $5, 'A-Link Node0', 'a_link', '198.51.100.21',
+          '198.51.100.22', '02:00:00:00:10:01', 10000, 'LAB-SW-A/01',
+          'A-Link', 'up', 'inspection', now() - interval '1 day',
+          'RFC 5737 주소를 사용한 합성 가용성 링크', $7),
+         ($2, $3, $4, $6, 'A-Link Node1', 'a_link', '198.51.100.22',
+          '198.51.100.21', '02:00:00:00:10:02', 10000, 'LAB-SW-B/01',
+          'A-Link', 'up', 'inspection', now() - interval '1 day',
+          'RFC 5737 주소를 사용한 합성 가용성 링크', $7)`,
+      [randomUUID(), randomUUID(), companyId, assetId, node0Id, node1Id, userId],
+    );
+    await tx.query(
+      `INSERT INTO asset_virtual_machines
+         (id, company_id, asset_id, name, business_role, operating_system,
+          protection_mode, status, vcpu, memory_gb, storage_gb, ip_addresses,
+          preferred_node, source, last_verified_at, notes, created_by)
+       VALUES ($1, $2, $3, 'DEMO-FT-APP', '합성 업무 애플리케이션',
+               'Synthetic Guest OS', 'ft', 'running', 8, 32, 256,
+               '203.0.113.20', $4, 'inspection', now() - interval '1 day',
+               'everRun FT 정책의 vCPU 8 제한을 따르는 합성 VM', $5)`,
+      [randomUUID(), companyId, assetId, node0Id, userId],
+    );
+
+    const customerSupportContractId = randomUUID();
+    const vendorSupportContractId = randomUUID();
+    await tx.query(
+      `INSERT INTO asset_support_contracts
+         (id, company_id, asset_id, scope, status, contract_number, provider_name,
+          recipient_name, intermediary_name, support_level, service_method, starts_on,
+          ends_on, coverage_summary, exclusions, renewal_owner_id, notes, created_by)
+       VALUES
+         ($1, $3, $4, 'customer_support', 'pending_renewal', 'SYN-CUST-SUP-0001',
+          'MOARIX Synthetic Service', 'Synthetic Manufacturing Demo',
+          'Synthetic Channel Lab', '24x7', 'hybrid', CURRENT_DATE - 275,
+          CURRENT_DATE + 45, '합성 원격·방문 기술지원', '소모품은 별도', $5,
+          '실제 계약이 아닌 화면 및 업무 흐름 검증용 데이터', $5),
+         ($2, $3, $4, 'vendor_support', 'active', 'SYN-VEND-SUP-0001',
+          'Synthetic Vendor Support', 'MOARIX Synthetic Service', NULL,
+          '24x7', 'hybrid', CURRENT_DATE - 275, CURRENT_DATE + 120,
+          '합성 벤더 백라인 지원', '현장 출동은 파트너 계약 범위', $5,
+          '실제 계약이 아닌 화면 및 업무 흐름 검증용 데이터', $5)`,
+      [customerSupportContractId, vendorSupportContractId, companyId, assetId, userId],
+    );
+    await tx.query(
+      `INSERT INTO asset_licenses
+         (id, company_id, asset_id, product_name, license_type, entitlement_reference,
+          license_key_hint, version, quantity, status, issued_on, expires_on,
+          support_contract_id, notes, created_by)
+       VALUES
+         ($1, $3, $4, 'everRun Enterprise Synthetic', 'perpetual',
+          'SYN-ENT-0001', 'DEMO-ONLY', '8.0-demo', 1, 'active',
+          CURRENT_DATE - 275, NULL, $5,
+          '키 원문을 저장하지 않는 영구 라이선스 합성 데이터', $6),
+         ($2, $3, $4, 'Synthetic Guest OS Subscription', 'subscription',
+          'SYN-SUB-0001', 'LAB-END-01', 'demo', 2, 'active',
+          CURRENT_DATE - 30, CURRENT_DATE + 180, $5,
+          '만료 추적 검증용 합성 구독 라이선스', $6)`,
+      [randomUUID(), randomUUID(), companyId, assetId, vendorSupportContractId, userId],
+    );
+
+    await tx.query(
+      `INSERT INTO asset_support_contracts
+         (id, company_id, asset_id, scope, status, provider_name, recipient_name,
+          service_method, coverage_summary, renewal_owner_id, notes, created_by)
+       VALUES
+         ($1, $3, $4, 'customer_support', 'not_contracted',
+          'MOARIX Synthetic Service', 'Synthetic Manufacturing Demo', 'remote',
+          '합성 고객 미계약 상태', $5, '지원 공백 경보 검증용', $5),
+         ($2, $3, $4, 'vendor_support', 'not_contracted',
+          'Synthetic Vendor Support', 'MOARIX Synthetic Service', 'remote',
+          '합성 벤더 미계약 상태', $5, '벤더 지원 공백 경보 검증용', $5)`,
+      [randomUUID(), randomUUID(), companyId, uncoveredAssetId, userId],
+    );
+
+    const inspectionId = randomUUID();
     await tx.query(
       `INSERT INTO maintenance_inspections
          (id, company_id, number, asset_id, site_id, inspection_type, status,
           scheduled_date, engineer_id, created_by, report_reference)
        VALUES ($1, $2, 'INSP-DEMO-00001', $3, $4, 'quarterly', 'scheduled',
                CURRENT_DATE + 14, $5, $5, '고객 정기점검 양식')`,
-      [randomUUID(), companyId, assetId, siteId, userId],
+      [inspectionId, companyId, assetId, siteId, userId],
     );
+    const inspectionChecks = [
+      ["protection", "availability", "Protection 상태", 1],
+      ["sync", "availability", "동기화 상태", 2],
+      ["service", "availability", "서비스 상태", 3],
+      ["cpu", "resources", "CPU 사용률", 4],
+      ["memory", "resources", "메모리 사용률", 5],
+      ["disk", "resources", "디스크 사용률", 6],
+    ] as const;
+    for (const [itemKey, category, label, position] of inspectionChecks) {
+      await tx.query(
+        `INSERT INTO inspection_check_items
+           (id, company_id, inspection_id, item_key, category, label, position)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [randomUUID(), companyId, inspectionId, itemKey, category, label, position],
+      );
+    }
     const serviceCaseId = randomUUID();
     await tx.query(
       `INSERT INTO service_cases
@@ -177,6 +306,13 @@ async function seed() {
        VALUES ($1, $2, $3, 'diagnostic-bundle-demo.zip',
                'https://storage.example.invalid/demo/diagnostic-bundle-demo.zip',
                'application/zip', 414187520, '합성 데모 진단 번들 링크', $4, now() - interval '2 days')`,
+      [randomUUID(), companyId, serviceCaseId, userId],
+    );
+    await tx.query(
+      `INSERT INTO service_case_watchers
+         (id, company_id, case_id, email, display_name, source, created_by)
+       VALUES ($1, $2, $3, 'demo-operations@example.invalid',
+               '합성 운영 배포 목록', 'distribution_list', $4)`,
       [randomUUID(), companyId, serviceCaseId, userId],
     );
     await tx.query(

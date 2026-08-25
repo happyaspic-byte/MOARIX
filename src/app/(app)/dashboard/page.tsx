@@ -21,13 +21,16 @@ function shortDate(value: string) {
 export default async function DashboardPage() {
   const session = await requirePermission("dashboard:read");
   const { metrics, activities, documents } = await getDashboard(session.companyId);
+  const renewalAssets = metrics.renewal90Assets + metrics.renewal60Assets + metrics.renewal30Assets + metrics.expiresTodayAssets;
+  const customerGapAssets = metrics.customerExpiredAssets + metrics.customerUncontractedAssets;
+  const licenseRisk = metrics.expiringLicenses + metrics.expiredLicenses;
 
   return (
     <>
       <PageHeader
         eyebrow="OPERATION OVERVIEW"
         title={`${session.userName}님, 업무 현황입니다.`}
-        description="매출·재고와 함께 Stratus 자산의 지원 만료, 미계약, 정기점검과 장애 업무를 한 화면에서 확인하세요."
+        description="매출·재고와 함께 고객 지원 의무, 벤더 백계약, 라이선스 만료, 정기점검과 장애 업무를 한 화면에서 확인하세요."
         actions={<><Link className="button" href="/inventory">재고 원장</Link>{hasPermission(session.role, "documents:write") ? <Link className="button primary" href="/documents/quote">견적 작성</Link> : null}</>}
       />
 
@@ -37,9 +40,10 @@ export default async function DashboardPage() {
         <MetricCard label="재주문 필요" value={`${metrics.lowStockCount}개 품목`} helper="가용재고가 기준 이하" icon={Boxes} tone="amber" />
         <MetricCard label="진행 서비스" value={`${metrics.openCases}건`} helper="접수·처리·대기 상태" icon={LifeBuoy} tone="coral" />
         <MetricCard label="30일 내 점검" value={`${metrics.dueInspections}건`} helper="예정·진행·조치 필요" icon={CalendarCheck2} tone="blue" />
-        <MetricCard label="90일 내 지원 만료" value={`${metrics.expiringAssets}대`} helper="고객 안내·갱신 대상" icon={ClockAlert} tone="amber" />
-        <MetricCard label="지원 만료" value={`${metrics.expiredAssets}대`} helper="즉시 계약 확인 필요" icon={AlertTriangle} tone="coral" />
-        <MetricCard label="미계약 자산" value={`${metrics.uncontractedAssets}대`} helper="활성 자산 중 지원 공백" icon={CircleOff} tone="coral" />
+        <MetricCard label="지원 갱신 구간" value={`${renewalAssets}대`} helper={`D90 ${metrics.renewal90Assets} · D60 ${metrics.renewal60Assets} · D30 ${metrics.renewal30Assets} · D0 ${metrics.expiresTodayAssets}`} icon={ClockAlert} tone="amber" />
+        <MetricCard label="고객 지원 공백" value={`${customerGapAssets}대`} helper={`만료 ${metrics.customerExpiredAssets} · 미계약 ${metrics.customerUncontractedAssets}`} icon={CircleOff} tone="coral" />
+        <MetricCard label="벤더 지원 공백" value={`${metrics.vendorGapAssets}대`} helper={`계약 미확인 ${metrics.vendorUnverifiedAssets}대`} icon={AlertTriangle} tone="coral" />
+        <MetricCard label="라이선스 만료 위험" value={`${licenseRisk}건`} helper={`90일 내 ${metrics.expiringLicenses} · 만료 ${metrics.expiredLicenses}`} icon={ClockAlert} tone="amber" />
       </section>
 
       <section className="section-grid">
@@ -66,9 +70,12 @@ export default async function DashboardPage() {
           <div className="card-body attention-list">
             <Link className="attention-item" href="/documents/quote"><div><strong>승인 대기 문서</strong><span>제출 후 승인되지 않은 문서</span></div><span className="attention-number">{metrics.pendingApprovals}</span></Link>
             <Link className="attention-item" href="/inventory"><div><strong>재주문 필요 품목</strong><span>안전 재고 이하</span></div><span className="attention-number">{metrics.lowStockCount}</span></Link>
-            <Link className="attention-item" href="/assets?support=expiring"><div><strong>90일 내 지원 만료</strong><span>고객 안내·갱신 대상</span></div><span className="attention-number">{metrics.expiringAssets}</span></Link>
-            <Link className="attention-item" href="/assets?support=expired"><div><strong>지원 만료 자산</strong><span>서비스 범위 즉시 확인</span></div><span className="attention-number">{metrics.expiredAssets}</span></Link>
-            <Link className="attention-item" href="/assets?support=not_contracted"><div><strong>미계약 자산</strong><span>고객·벤더 계약 공백</span></div><span className="attention-number">{metrics.uncontractedAssets}</span></Link>
+            <Link className="attention-item" href="/assets?support=expiring"><div><strong>지원 갱신 D-90 / 60 / 30 / 0</strong><span>고객·벤더 중 먼저 도래하는 실효 기한</span></div><span className="attention-number">{metrics.renewal90Assets}/{metrics.renewal60Assets}/{metrics.renewal30Assets}/{metrics.expiresTodayAssets}</span></Link>
+            <Link className="attention-item" href="/assets?support=expired"><div><strong>고객 지원 만료</strong><span>고객 제공 의무와 서비스 범위 확인</span></div><span className="attention-number">{metrics.customerExpiredAssets}</span></Link>
+            <Link className="attention-item" href="/assets?support=not_contracted"><div><strong>고객 미계약</strong><span>활성 자산의 고객 지원 계약 없음</span></div><span className="attention-number">{metrics.customerUncontractedAssets}</span></Link>
+            <Link className="attention-item" href="/assets?support=vendor_gap"><div><strong>벤더 지원 공백</strong><span>고객 의무를 뒷받침할 벤더 계약 없음</span></div><span className="attention-number">{metrics.vendorGapAssets}</span></Link>
+            <Link className="attention-item" href="/assets?support=vendor_unverified"><div><strong>벤더 계약 미확인</strong><span>현재 벤더 계약 정보를 등록하세요</span></div><span className="attention-number">{metrics.vendorUnverifiedAssets}</span></Link>
+            <Link className="attention-item" href="/reports#license-expiry"><div><strong>라이선스 만료 위험</strong><span>90일 내 만료·이미 만료된 라이선스</span></div><span className="attention-number">{licenseRisk}</span></Link>
             <Link className="attention-item" href="/inspections?queue=due"><div><strong>30일 내 점검</strong><span>예정·진행·조치 필요</span></div><span className="attention-number">{metrics.dueInspections}</span></Link>
           </div>
         </article>

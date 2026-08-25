@@ -21,6 +21,14 @@ const optionalPercentage = z.preprocess(
   (value) => value === "" || value === undefined ? undefined : value,
   z.coerce.number().min(0).max(100).optional(),
 );
+const optionalPositiveInteger = (max: number) => z.preprocess(
+  (value) => value === "" || value === undefined ? undefined : value,
+  z.coerce.number().int().positive().max(max).optional(),
+);
+const optionalPositiveNumber = (max: number) => z.preprocess(
+  (value) => value === "" || value === undefined ? undefined : value,
+  z.coerce.number().positive().max(max).optional(),
+);
 
 export const loginSchema = z.object({
   email: z.email().max(254).transform((value) => value.trim().toLowerCase()),
@@ -114,6 +122,111 @@ export const assetSchema = z.object({
   notes: optionalText(2000),
 });
 
+export const assetProfileSchema = z.object({
+  assetId: z.uuid(),
+  status: z.enum(["active", "maintenance", "retired"]),
+  businessSystem: optionalText(160),
+  environment: z.enum(["production", "staging", "test", "development", "other"]),
+  hardwareVendor: optionalText(120),
+  rackLocation: optionalText(120),
+  hypervisor: optionalText(120),
+  assignedEngineerId: z.union([z.uuid(), z.literal("")]).optional(),
+  configurationSource: z.enum(["manual", "inspection", "import", "monitoring"]),
+  configurationCheckedAt: z.union([z.iso.datetime({ local: true }), z.literal("")]).optional(),
+});
+
+export const assetNodeSchema = z.object({
+  assetId: z.uuid(),
+  role: z.enum(["node0", "node1", "cma", "cmb", "host", "other"]),
+  name: trimmed(120),
+  hardwareModel: optionalText(160),
+  serialNumber: optionalText(120),
+  operatingSystem: optionalText(160),
+  status: z.enum(["active", "standby", "maintenance", "fault", "offline", "unknown"]),
+  managementAddress: optionalText(200),
+  bmcAddress: optionalText(200),
+  cpuCores: optionalPositiveInteger(4096),
+  memoryGb: optionalPositiveNumber(1048576),
+  lastVerifiedAt: z.union([z.iso.datetime({ local: true }), z.literal("")]).optional(),
+  notes: optionalText(2000),
+});
+export const assetNodeUpdateSchema = assetNodeSchema.extend({ assetNodeId: z.uuid() });
+
+export const assetNetworkSchema = z.object({
+  assetId: z.uuid(),
+  nodeId: z.union([z.uuid(), z.literal("")]).optional(),
+  label: trimmed(120),
+  purpose: z.enum(["management", "business", "a_link", "private", "bmc", "storage", "other"]),
+  address: optionalText(200),
+  peerAddress: optionalText(200),
+  macAddress: optionalText(50),
+  vlanId: optionalPositiveInteger(4094),
+  speedMbps: optionalPositiveInteger(800000),
+  switchPort: optionalText(120),
+  redundancyGroup: optionalText(120),
+  status: z.enum(["up", "down", "degraded", "unknown"]),
+  lastVerifiedAt: z.union([z.iso.datetime({ local: true }), z.literal("")]).optional(),
+  notes: optionalText(2000),
+});
+export const assetNetworkUpdateSchema = assetNetworkSchema.extend({ networkInterfaceId: z.uuid() });
+
+export const assetVmSchema = z.object({
+  assetId: z.uuid(),
+  name: trimmed(160),
+  businessRole: optionalText(160),
+  operatingSystem: optionalText(160),
+  protectionMode: z.enum(["ha", "ft", "unprotected", "other"]),
+  status: z.enum(["running", "stopped", "degraded", "faulted", "unknown"]),
+  vcpu: optionalPositiveInteger(1024),
+  memoryGb: optionalPositiveNumber(1048576),
+  storageGb: optionalPositiveNumber(1073741824),
+  ipAddresses: optionalText(500),
+  preferredNode: z.union([z.uuid(), z.literal("")]).optional(),
+  lastVerifiedAt: z.union([z.iso.datetime({ local: true }), z.literal("")]).optional(),
+  notes: optionalText(2000),
+});
+export const assetVmUpdateSchema = assetVmSchema.extend({ virtualMachineId: z.uuid() });
+
+export const assetContractSchema = z.object({
+  assetId: z.uuid(),
+  scope: z.enum(["customer_support", "vendor_support"]),
+  status: z.enum(["active", "pending_renewal", "not_contracted", "expired"]),
+  contractNumber: optionalText(120),
+  providerName: trimmed(160),
+  recipientName: optionalText(160),
+  intermediaryName: optionalText(160),
+  supportLevel: optionalText(120),
+  serviceMethod: z.enum(["remote", "visit", "hybrid"]),
+  startsOn: z.union([z.iso.date(), z.literal("")]).optional(),
+  endsOn: z.union([z.iso.date(), z.literal("")]).optional(),
+  coverageSummary: optionalText(3000),
+  exclusions: optionalText(3000),
+  renewalOwnerId: z.union([z.uuid(), z.literal("")]).optional(),
+  notes: optionalText(2000),
+}).superRefine((value, context) => {
+  if (value.startsOn && value.endsOn && value.endsOn < value.startsOn) context.addIssue({ code: "custom", path: ["endsOn"], message: "계약 종료일은 시작일보다 빠를 수 없습니다." });
+  if (value.status !== "not_contracted" && !value.contractNumber && !value.coverageSummary) context.addIssue({ code: "custom", path: ["contractNumber"], message: "계약번호 또는 지원 범위를 입력하세요." });
+});
+
+export const assetLicenseSchema = z.object({
+  assetId: z.uuid(),
+  productName: trimmed(160),
+  licenseType: z.enum(["perpetual", "subscription", "oem", "trial", "other"]),
+  entitlementReference: optionalText(160),
+  licenseKeyHint: optionalText(12),
+  version: optionalText(120),
+  quantity: z.coerce.number().int().positive().max(1000000),
+  status: z.enum(["active", "suspended", "retired"]),
+  supportContractId: z.union([z.uuid(), z.literal("")]).optional(),
+  issuedOn: z.union([z.iso.date(), z.literal("")]).optional(),
+  expiresOn: z.union([z.iso.date(), z.literal("")]).optional(),
+  notes: optionalText(2000),
+}).superRefine((value, context) => {
+  if (value.issuedOn && value.expiresOn && value.expiresOn < value.issuedOn) context.addIssue({ code: "custom", path: ["expiresOn"], message: "라이선스 만료일은 발급일보다 빠를 수 없습니다." });
+  if (value.licenseType !== "perpetual" && value.status === "active" && !value.expiresOn) context.addIssue({ code: "custom", path: ["expiresOn"], message: "기간형 라이선스의 만료일을 입력하세요." });
+});
+export const assetLicenseUpdateSchema = assetLicenseSchema.safeExtend({ licenseId: z.uuid() });
+
 export const serviceCaseSchema = z.object({
   counterpartyId: z.uuid(),
   assetId: z.union([z.uuid(), z.literal("")]).optional(),
@@ -177,6 +290,13 @@ export const serviceCaseAttachmentSchema = z.object({
   ),
   description: optionalText(500),
   occurredAt: z.union([z.iso.datetime({ local: true }), z.literal("")]).optional(),
+});
+
+export const serviceCaseWatcherSchema = z.object({
+  caseId: z.uuid(),
+  email: z.email().max(254).transform((value) => value.trim().toLowerCase()),
+  displayName: optionalText(120),
+  source: z.enum(["manual", "customer", "vendor", "distribution_list"]),
 });
 
 export const customerSiteSchema = z.object({

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { getDatabase } from "@/lib/db/client";
+import { getDatabase, withCompany } from "@/lib/db/client";
 import { verifyPassword } from "@/lib/security/password";
 import { createSessionToken, hashSessionToken } from "@/lib/security/session-token";
 import type { Role } from "@/lib/security/permissions";
@@ -78,20 +78,7 @@ export async function authenticate(
   const identifierHash = hashSessionToken(`login:${normalizedEmail}`);
   if (await isLoginBlocked(identifierHash)) return null;
   const result = await database.query<LoginRow>(
-    `SELECT
-       u.id AS user_id,
-       m.company_id,
-       u.password_hash,
-       u.name AS user_name,
-       u.email,
-       c.name AS company_name,
-       m.role
-     FROM users u
-     JOIN company_members m ON m.user_id = u.id AND m.is_active = true
-     JOIN companies c ON c.id = m.company_id AND c.is_active = true
-     WHERE u.email = $1 AND u.is_active = true
-     ORDER BY m.created_at ASC
-     LIMIT 1`,
+    "SELECT * FROM public.moarix_login_lookup($1)",
     [normalizedEmail],
   );
 
@@ -106,13 +93,11 @@ export async function authenticate(
   const sessionId = randomUUID();
   const expiresAt = new Date(Date.now() + SESSION_HOURS * 60 * 60 * 1000);
 
-  await database.transaction(async (tx) => {
-    await tx.query("DELETE FROM login_attempts WHERE identifier_hash = $1", [identifierHash]);
-    await tx.query("DELETE FROM sessions WHERE expires_at < now() OR revoked_at < now() - interval '7 days'");
+  await withCompany(account.company_id, async (tx) => {
     await tx.query(
-      `INSERT INTO sessions
-         (id, user_id, company_id, token_hash, expires_at, user_agent, ip_hash)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      `SELECT public.moarix_create_session(
+         $1, $2, $3, $4, $5, $6, $7, $8
+       )`,
       [
         sessionId,
         account.user_id,
@@ -121,9 +106,9 @@ export async function authenticate(
         expiresAt.toISOString(),
         metadata.userAgent?.slice(0, 512) ?? null,
         metadata.ipHash ?? null,
+        identifierHash,
       ],
     );
-    await tx.query("UPDATE users SET last_login_at = now() WHERE id = $1", [account.user_id]);
   });
 
   return { token, expiresAt };
@@ -142,37 +127,15 @@ export async function findSession(token: string): Promise<SessionContext | null>
     company_timezone: string;
     role: Role;
     expires_at: Date | string;
-  }>(
-    `SELECT
-       s.id AS session_id,
-       u.id AS user_id,
-       c.id AS company_id,
-       u.name AS user_name,
-       u.email,
-       c.name AS company_name,
-       c.timezone AS company_timezone,
-       m.role,
-       s.expires_at
-     FROM sessions s
-     JOIN users u ON u.id = s.user_id AND u.is_active = true
-     JOIN companies c ON c.id = s.company_id AND c.is_active = true
-     JOIN company_members m
-       ON m.company_id = s.company_id AND m.user_id = s.user_id AND m.is_active = true
-     WHERE s.token_hash = $1
-       AND s.revoked_at IS NULL
-       AND s.expires_at > now()
-     LIMIT 1`,
-    [hashSessionToken(token)],
-  );
+  }>("SELECT * FROM public.moarix_find_session($1)", [hashSessionToken(token)]);
 
   const row = result.rows[0];
   if (!row) return null;
 
-  await database.query(
-    `UPDATE sessions SET last_seen_at = now()
-     WHERE id = $1 AND last_seen_at < now() - interval '5 minutes'`,
+  await withCompany(row.company_id, (tx) => tx.query(
+    "SELECT public.moarix_touch_session($1)",
     [row.session_id],
-  );
+  ));
 
   return {
     sessionId: row.session_id,
@@ -190,8 +153,5 @@ export async function findSession(token: string): Promise<SessionContext | null>
 export async function revokeSession(token: string) {
   if (!token) return;
   const database = await getDatabase();
-  await database.query(
-    "UPDATE sessions SET revoked_at = now() WHERE token_hash = $1 AND revoked_at IS NULL",
-    [hashSessionToken(token)],
-  );
+  await database.query("SELECT public.moarix_revoke_session($1)", [hashSessionToken(token)]);
 }

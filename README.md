@@ -17,13 +17,16 @@ MOARIX는 중소·중견 조직을 위한 멀티테넌트 영업·구매·재고
 - 중복 전송 방지 키와 추가 전용 재고 원장
 - 고객사별 국내·해외 사업장과 현장 담당자·시간대
 - Stratus Asset ID, everRun·ztC·ftServer, 버전·HA/FT·OS·지원 방식
-- 계약·갱신·만료·미계약과 D-90 지원 업무 큐
-- Protection·Sync·Service와 자원 사용률을 기록하는 정기점검
+- 자산 360° 워크스페이스와 Node0/Node1·CMA/CMB·A-Link·BMC·업무망·VM 토폴로지
+- 고객 지원 계약과 Stratus/Penguin 벤더 백계약의 분리, 개정 이력과 D-90·60·30·0 위험 큐
+- 영구·구독·OEM 라이선스와 Entitlement 만료 추적(전체 제품 키 저장 금지)
+- Protection·Sync·Service와 자원 사용률을 기록하는 불변 정기점검 체크리스트
 - 고객·자산 일치 검증, 외부 CS 번호, 심각도·SLA·다음 조치 우선순위
-- 서비스 케이스 상세, 고객/지원 권한/자산 정보, 추가 전용 활동·상태 타임라인
+- 서비스 케이스 상세, 고객/지원 권한/자산 정보, Task Watch List, 추가 전용 활동·상태 타임라인
+- 고객 360° 화면과 고객 → 사업장 → 자산 → 점검·케이스 상호 이동
 - 대용량 진단 자료를 위한 HTTPS 첨부 링크·크기 메타데이터와 외부 원문 열기
 - 대시보드, 표준 실적·재고 평가·지원 계약·점검 운영 보고서
-- 추가 전용 감사 로그와 운영 헬스체크
+- 추가 전용 감사 로그, 합성 데이터 개인정보 차단 게이트와 운영 헬스체크
 - 반응형 한국어 UI, Docker/PostgreSQL 운영 구성
 
 ## 기술 구성
@@ -74,10 +77,10 @@ docker compose run --rm \
   -e BOOTSTRAP_ADMIN_PASSWORD="replace-with-a-long-password" \
   -e BOOTSTRAP_COMPANY_NAME="회사명" \
   -e BOOTSTRAP_COMPANY_SLUG="company-slug" \
-  --entrypoint node app scripts/bootstrap-admin.mjs
+  --entrypoint node migrate scripts/bootstrap-admin.mjs
 ```
 
-같은 이메일이나 회사 슬러그가 이미 있으면 부트스트랩은 중단됩니다. 실행 후 셸 히스토리와 배포 환경에서 평문 비밀번호를 제거하세요.
+부트스트랩은 마이그레이션 소유자 연결이 있는 일회성 `migrate` 서비스에서만 실행합니다. 같은 이메일이나 회사 슬러그가 이미 있으면 중단됩니다. 실행 후 셸 히스토리와 배포 환경에서 평문 비밀번호를 제거하세요.
 
 ## 환경 변수
 
@@ -101,6 +104,7 @@ npm run lint
 npm run typecheck
 npm run test:coverage
 npm run build
+npm run test:privacy
 ```
 
 격리된 테스트 DB를 준비한 뒤 런타임 스모크를 실행할 수 있습니다.
@@ -128,7 +132,7 @@ E2E_PASSWORD="$SEED_DEMO_PASSWORD" npm run test:e2e
 
 외부 지원 포털은 로그인 세션과 공급자 프레임 정책에 종속되므로 iframe으로 삽입하지 않습니다. MOARIX에는 필요한 케이스 내용을 독립적으로 보존하고, 원문은 검증된 HTTPS 주소를 새 창에서 여는 방식으로 연결합니다. 실제 파일 업로드는 객체 저장소의 서명 URL·악성코드 검사·보유 정책이 준비된 뒤 활성화해야 합니다.
 
-CI는 린트, 타입 검사, 커버리지, 마이그레이션, 프로덕션 빌드, 도메인/HTTP 스모크, Playwright, Docker 빌드와 실제 PostgreSQL 17의 제한 역할·RLS 교차 테넌트 차단을 모두 검사합니다.
+CI는 개인정보·현실형 식별자 검사, 린트, 타입 검사, 커버리지, 마이그레이션, 프로덕션 빌드, 도메인/HTTP 스모크, Playwright, Docker 빌드와 실제 PostgreSQL 17의 제한 역할·RLS 교차 테넌트 차단을 모두 검사합니다.
 
 ## 운영 전 필수 점검
 

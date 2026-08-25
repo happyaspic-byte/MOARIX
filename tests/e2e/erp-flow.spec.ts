@@ -13,6 +13,30 @@ async function login(page: Page, expectedPath = "/dashboard") {
   await expect(page).toHaveURL((url) => url.pathname === expectedPath);
 }
 
+async function expectNoHighImpactAccessibilityViolations(page: Page, context: string) {
+  const accessibility = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze();
+  const highImpact = accessibility.violations.filter(
+    (violation) => violation.impact === "critical" || violation.impact === "serious",
+  );
+  const details = highImpact.map((violation) => {
+    const targets = violation.nodes.flatMap((node) => node.target).join(", ");
+    return `[${violation.impact}] ${violation.id}: ${violation.help}${targets ? ` (${targets})` : ""}`;
+  }).join("\n");
+  expect(highImpact, `${context}\n${details}`).toEqual([]);
+}
+
+async function expectNoDocumentHorizontalOverflow(page: Page, context: string) {
+  const dimensions = await page.evaluate(() => ({
+    body: document.body.scrollWidth,
+    root: document.documentElement.scrollWidth,
+    viewport: document.documentElement.clientWidth,
+  }));
+  expect(
+    Math.max(dimensions.body, dimensions.root),
+    `${context}: document width ${Math.max(dimensions.body, dimensions.root)}px exceeds ${dimensions.viewport}px viewport`,
+  ).toBeLessThanOrEqual(dimensions.viewport + 1);
+}
+
 test("rejects invalid credentials without issuing a session", async ({ page }) => {
   test.skip(!password, "E2E_PASSWORD is required");
 
@@ -53,7 +77,7 @@ test("authenticates and keeps ERP navigation accessible", async ({ page }) => {
     ["/documents/bill", "매입 청구"],
     ["/inventory", "재고·원장"],
     ["/sites", "고객 사업장"],
-    ["/assets", "자산·지원 계약"],
+    ["/assets", "Stratus 자산 운영"],
     ["/inspections", "정기점검"],
     ["/service", "서비스 케이스"],
     ["/reports", "표준·운영 보고서"],
@@ -68,13 +92,157 @@ test("authenticates and keeps ERP navigation accessible", async ({ page }) => {
   }
 });
 
+test("validates the seeded Stratus asset 360 workspace and risk-first queue", async ({ page }) => {
+  test.skip(!password, "E2E_PASSWORD is required");
+  await login(page, "/assets");
+
+  await page.goto("/assets?q=ee-demo-001&q=ignored");
+  await expect(page.getByRole("heading", { level: 1, name: "Stratus 자산 운영" })).toBeVisible();
+  await expect(page.getByLabel("통합 검색")).toHaveValue("ee-demo-001");
+  await page.goto("/assets");
+
+  const desktopTable = page.locator(".asset-desktop-table");
+  const queueRows = desktopTable.locator("tbody tr");
+  await expect(queueRows.first()).toContainText("zen-demo-002");
+  await expect(queueRows.first().locator(".status-not_contracted")).toHaveText("미계약");
+  await expect(page.getByText(/지원 위험 우선/)).toBeVisible();
+
+  await page.getByLabel("통합 검색").fill("ee-demo-001");
+  await page.getByRole("button", { name: "검색 적용" }).click();
+  await expect(page).toHaveURL((url) => url.pathname === "/assets" && url.searchParams.get("q") === "ee-demo-001");
+  await expect(queueRows).toHaveCount(1);
+  const assetLink = desktopTable.getByRole("link", { name: "ee-demo-001", exact: true });
+  await expect(assetLink).toBeVisible();
+  await expectNoHighImpactAccessibilityViolations(page, "Stratus asset queue accessibility");
+
+  await assetLink.click();
+  await expect(page).toHaveURL(/\/assets\/[0-9a-f-]+$/);
+  const assetPath = new URL(page.url()).pathname;
+  const assetId = assetPath.split("/").at(-1)!;
+  await expect(page).toHaveTitle("Stratus 자산 상세 | MOARIX");
+  await expect(page.getByRole("heading", { level: 1, name: "everRun Enterprise 이중화 시스템" })).toBeVisible();
+  await expect(page.locator(".asset-hero-main")).toContainText("합성 생산 실행 시스템");
+
+  const tabs = page.getByRole("navigation", { name: "자산 상세 메뉴" });
+  await expect(tabs.getByRole("link", { name: "개요" })).toHaveAttribute("aria-current", "page");
+  await expectNoHighImpactAccessibilityViolations(page, "Stratus asset overview accessibility");
+
+  await tabs.getByRole("link", { name: "노드·네트워크" }).click();
+  await expect(page).toHaveURL((url) => url.pathname === assetPath && url.searchParams.get("tab") === "infrastructure");
+  const nodeTable = page.getByRole("table", { name: "노드 구성" });
+  await expect(nodeTable.getByText("DEMO-NODE0", { exact: true })).toBeVisible();
+  await expect(nodeTable.getByText("DEMO-NODE1", { exact: true })).toBeVisible();
+  await expect(page.getByText("A-Link Node0", { exact: true })).toBeVisible();
+  await expect(page.getByText("A-Link Node1", { exact: true })).toBeVisible();
+  await expect(page.getByText("198.51.100.21", { exact: true })).toBeVisible();
+
+  await tabs.getByRole("link", { name: "가상 머신" }).click();
+  await expect(page).toHaveURL((url) => url.pathname === assetPath && url.searchParams.get("tab") === "vms");
+  await expect(page.getByText("DEMO-FT-APP", { exact: true })).toBeVisible();
+  await expect(page.getByText(/8 vCPU · 32(?:\.00)? GB · 256(?:\.00)? GB/)).toBeVisible();
+
+  await tabs.getByRole("link", { name: "계약·라이선스" }).click();
+  await expect(page).toHaveURL((url) => url.pathname === assetPath && url.searchParams.get("tab") === "contracts");
+  await expect(page.getByText("SYN-CUST-SUP-0001", { exact: true })).toBeVisible();
+  await expect(page.getByText("SYN-VEND-SUP-0001", { exact: true })).toBeVisible();
+  const licenseTable = page.getByRole("table", { name: "라이선스 현황" });
+  await expect(licenseTable.getByText("everRun Enterprise Synthetic", { exact: true })).toBeVisible();
+  await expect(licenseTable.getByText("Synthetic Guest OS Subscription", { exact: true })).toBeVisible();
+  await expect(licenseTable.getByText("키 …DEMO-ONLY", { exact: true })).toBeVisible();
+  await expectNoHighImpactAccessibilityViolations(page, "Stratus contract and license accessibility");
+
+  await tabs.getByRole("link", { name: "점검" }).click();
+  await expect(page).toHaveURL((url) => url.pathname === assetPath && url.searchParams.get("tab") === "inspections");
+  const seededInspection = page.locator(".inspection-card", {
+    has: page.getByText("INSP-DEMO-00001", { exact: true }),
+  });
+  await expect(seededInspection).toHaveCount(1);
+  await expect(seededInspection.getByText("INSP-DEMO-00001", { exact: true })).toBeVisible();
+  await expect(seededInspection.getByText("Protection 상태", { exact: true })).toBeVisible();
+  await expect(seededInspection.getByText("메모리 사용률", { exact: true })).toBeVisible();
+
+  await tabs.getByRole("link", { name: "케이스" }).click();
+  await expect(page).toHaveURL((url) => url.pathname === assetPath && url.searchParams.get("tab") === "cases");
+  const seededCase = page.getByRole("link", { name: "FT VM 메모리 동기화 지연", exact: true });
+  await expect(seededCase).toBeVisible();
+  await seededCase.click();
+  const watchListSection = page
+    .getByRole("heading", { level: 2, name: "Task Watch List" })
+    .locator("xpath=ancestor::section[1]");
+  await expect(watchListSection).toBeVisible();
+  const watcherRow = watchListSection.getByRole("row").filter({
+    hasText: "demo-operations@example.invalid",
+  });
+  await expect(watcherRow).toContainText("합성 운영 배포 목록");
+  await expect(watcherRow).toContainText("배포 목록");
+  await expect(
+    watcherRow.getByRole("link", {
+      name: "demo-operations@example.invalid",
+      exact: true,
+    }),
+  ).toHaveAttribute("href", "mailto:demo-operations@example.invalid");
+  await expectNoHighImpactAccessibilityViolations(page, "Stratus service case watcher accessibility");
+
+  await page.goto(assetPath);
+  await page.locator(".page-actions").getByRole("link", { name: "케이스 접수" }).click();
+  await expect(page).toHaveURL((url) => url.pathname === "/service"
+    && url.searchParams.get("assetId") === assetId
+    && url.searchParams.get("create") === "1");
+  let drawer = page.locator("details.create-panel[open] > .create-drawer");
+  await expect(drawer).toBeVisible();
+  await expect(drawer.getByLabel("관련 자산")).toHaveValue(assetId);
+  await expect(drawer.getByLabel("관련 자산").locator("option:checked")).toContainText("ee-demo-001");
+
+  await page.goto(assetPath);
+  await page.locator(".page-actions").getByRole("link", { name: "점검 예약" }).click();
+  await expect(page).toHaveURL((url) => url.pathname === "/inspections"
+    && url.searchParams.get("assetId") === assetId
+    && url.searchParams.get("create") === "1");
+  drawer = page.locator("details.create-panel[open] > .create-drawer");
+  await expect(drawer).toBeVisible();
+  await expect(drawer.getByLabel("점검 자산 *")).toHaveValue(assetId);
+  await expect(drawer.getByLabel("점검 자산 *").locator("option:checked")).toContainText("ee-demo-001");
+});
+
+test("keeps the Stratus asset workspace accessible without mobile document overflow", async ({ page }) => {
+  test.skip(!password, "E2E_PASSWORD is required");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await login(page, "/assets");
+
+  const mobileList = page.locator(".asset-mobile-list");
+  await expect(mobileList).toBeVisible();
+  await expect(page.locator(".asset-desktop-table")).toBeHidden();
+  await expectNoDocumentHorizontalOverflow(page, "mobile Stratus asset queue");
+  await expectNoHighImpactAccessibilityViolations(page, "mobile Stratus asset queue accessibility");
+
+  const seededAssetCard = mobileList.locator("article").filter({ hasText: "ee-demo-001" });
+  await expect(seededAssetCard).toBeVisible();
+  await seededAssetCard.getByRole("link", { name: "자산 워크스페이스 열기" }).click();
+  await expect(page).toHaveURL(/\/assets\/[0-9a-f-]+$/);
+  const assetPath = new URL(page.url()).pathname;
+  await expectNoDocumentHorizontalOverflow(page, "mobile Stratus asset overview");
+
+  const tabs = page.getByRole("navigation", { name: "자산 상세 메뉴" });
+  await expect(tabs).toBeVisible();
+  await tabs.getByRole("link", { name: "노드·네트워크" }).click();
+  await expect(page).toHaveURL((url) => url.pathname === assetPath && url.searchParams.get("tab") === "infrastructure");
+  await expect(page.getByText("A-Link Node0", { exact: true })).toBeVisible();
+  await expectNoDocumentHorizontalOverflow(page, "mobile Stratus infrastructure tab");
+
+  await tabs.getByRole("link", { name: "계약·라이선스" }).click();
+  await expect(page).toHaveURL((url) => url.pathname === assetPath && url.searchParams.get("tab") === "contracts");
+  await expect(page.getByText("everRun Enterprise Synthetic", { exact: true })).toBeVisible();
+  await expectNoDocumentHorizontalOverflow(page, "mobile Stratus contracts tab");
+  await expectNoHighImpactAccessibilityViolations(page, "mobile Stratus contract and license accessibility");
+});
+
 test("creates a counterparty through the browser", async ({ page }) => {
   test.skip(!password, "E2E_PASSWORD is required");
   await login(page, "/counterparties");
 
   const suffix = Date.now().toString(36).toUpperCase();
   await page.locator("summary", { hasText: "거래처 등록" }).click();
-  const drawer = page.locator(".create-drawer");
+  const drawer = page.locator("details.create-panel[open] > .create-drawer");
   await drawer.getByLabel("거래처 코드 *").fill(`E2E-${suffix}`);
   await drawer.getByLabel("거래처명 *").fill(`브라우저 검증 고객 ${suffix}`);
   await drawer.getByRole("button", { name: "거래처 등록" }).click();
@@ -93,7 +261,7 @@ test("connects a customer site, Stratus asset and inspection", async ({ page }) 
   const vendorAssetId = `ee-${suffix.toLowerCase()}`;
 
   await page.locator("summary", { hasText: "거래처 등록" }).click();
-  let drawer = page.locator(".create-drawer");
+  let drawer = page.locator("details.create-panel[open] > .create-drawer");
   await drawer.getByLabel("거래처 코드 *").fill(`OPS-${suffix}`);
   await drawer.getByLabel("거래처명 *").fill(customerName);
   await drawer.getByRole("button", { name: "거래처 등록" }).click();
@@ -101,7 +269,7 @@ test("connects a customer site, Stratus asset and inspection", async ({ page }) 
 
   await page.goto("/sites");
   await page.locator("summary", { hasText: "사업장 등록" }).click();
-  drawer = page.locator(".create-drawer");
+  drawer = page.locator("details.create-panel[open] > .create-drawer");
   await drawer.getByLabel("고객사 *").selectOption({ label: `OPS-${suffix} · ${customerName}` });
   await drawer.getByLabel("사업장 코드 *").fill(`PLANT-${suffix}`);
   await drawer.getByLabel("사업장명 *").fill(siteName);
@@ -110,7 +278,7 @@ test("connects a customer site, Stratus asset and inspection", async ({ page }) 
 
   await page.goto("/assets");
   await page.locator("summary", { hasText: "자산 등록" }).click();
-  drawer = page.locator(".create-drawer");
+  drawer = page.locator("details.create-panel[open] > .create-drawer");
   await drawer.getByLabel("고객사 *").selectOption({ label: `OPS-${suffix} · ${customerName}` });
   await drawer.getByLabel("사업장 *").selectOption({ label: `PLANT-${suffix} · ${siteName}` });
   await drawer.getByLabel("내부 자산 태그 *").fill(assetTag);
@@ -124,7 +292,7 @@ test("connects a customer site, Stratus asset and inspection", async ({ page }) 
 
   await page.goto("/inspections");
   await page.locator("summary", { hasText: "점검 예약" }).click();
-  drawer = page.locator(".create-drawer");
+  drawer = page.locator("details.create-panel[open] > .create-drawer");
   await drawer.getByLabel("점검 자산 *").selectOption({ label: `${customerName} · ${siteName} · ${vendorAssetId}` });
   await drawer.getByLabel("예정일 *").fill(new Date().toISOString().slice(0, 10));
   await drawer.getByRole("button", { name: "점검 일정 등록" }).click();
@@ -141,7 +309,7 @@ test("creates and operates a detailed service case", async ({ page }) => {
   const suffix = Date.now().toString(36).toUpperCase();
   const title = `FT 동기화 브라우저 검증 ${suffix}`;
   await page.locator("summary", { hasText: "케이스 접수" }).click();
-  let panel = page.locator(".create-drawer");
+  let panel = page.locator("details.create-panel[open] > .create-drawer");
   await panel.getByLabel("고객사 *").selectOption({ label: "CUST-001 · 한빛 제조" });
   await panel.getByLabel("관련 자산").selectOption({ label: "ee-demo-001 · 창원 1공장 · everRun Enterprise 이중화 시스템" });
   await panel.getByLabel("케이스 유형 *").selectOption("incident");

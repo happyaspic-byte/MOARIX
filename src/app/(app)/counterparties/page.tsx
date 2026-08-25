@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { Plus } from "lucide-react";
 import { CounterpartyForm } from "./counterparty-form";
 import { DrawerCloseButton } from "@/components/drawer-close-button";
@@ -31,7 +32,7 @@ export default async function CounterpartiesPage() {
     <PageHeader eyebrow="MASTER DATA" title="거래처" description="고객과 공급사의 기본 정보, 결제 조건과 신용 한도를 한 원장에서 관리합니다." actions={createPanel} />
     <section className="card">
       <header className="card-header"><div><h2>거래처 목록</h2><p>총 {rows.length}개 · 회사별로 격리된 데이터</p></div></header>
-      {rows.length === 0 ? <EmptyState /> : <div className="table-wrap"><table className="data-table"><thead><tr><th>코드·거래처</th><th>유형</th><th>사업자번호</th><th>담당</th><th>연락처</th><th>결제 조건</th><th className="numeric">신용 한도</th></tr></thead><tbody>{rows.map((row) => <tr key={row.id}><td><div className="table-title"><strong>{row.name}</strong><small>{row.code}</small></div></td><td>{kindLabel[row.kind]}</td><td>{row.business_number ?? "—"}</td><td>{row.representative_name ?? "—"}</td><td><div className="table-title"><span>{row.phone ?? "—"}</span><small>{row.email ?? ""}</small></div></td><td>{row.payment_terms_days}일</td><td className="numeric">{formatMoney(row.credit_limit)}</td></tr>)}</tbody></table></div>}
+      {rows.length === 0 ? <EmptyState /> : <div className="table-wrap"><table className="data-table"><thead><tr><th>코드·거래처</th><th>유형</th><th>사업자번호</th><th>담당</th><th>연락처</th><th>결제 조건</th><th className="numeric">신용 한도</th></tr></thead><tbody>{rows.map((row) => <tr key={row.id}><td><div className="table-title">{row.kind === "supplier" ? <strong>{row.name}</strong> : <Link className="table-link" href={`/counterparties/${row.id}`}><strong>{row.name}</strong></Link>}<small>{row.code}</small></div></td><td>{kindLabel[row.kind]}</td><td>{row.business_number ?? "—"}</td><td>{row.representative_name ?? "—"}</td><td><div className="table-title"><span>{row.phone ?? "—"}</span><small>{row.email ?? ""}</small></div></td><td>{row.payment_terms_days}일</td><td className="numeric">{formatMoney(row.credit_limit)}</td></tr>)}</tbody></table></div>}
     </section>
   </>;
 }

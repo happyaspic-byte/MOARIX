@@ -24,8 +24,8 @@ export type AuditRow = {
 };
 
 export async function listMembers(companyId: string) {
-  const database = await getDatabase();
-  const result = await database.query<MemberRow>(
+  return withCompany(companyId, async (tx) => {
+    const result = await tx.query<MemberRow>(
     `SELECT u.id AS user_id, u.name, u.email, m.role,
             (u.is_active AND m.is_active) AS is_active, u.last_login_at::text
      FROM company_members m
@@ -35,7 +35,8 @@ export async function listMembers(companyId: string) {
               u.name`,
     [companyId],
   );
-  return result.rows;
+    return result.rows;
+  });
 }
 
 export function listAuditLogs(companyId: string) {
@@ -85,10 +86,24 @@ export async function updateMember(
   const database = await getDatabase();
   await database.transaction(async (tx) => {
     await tx.query("SELECT set_config('app.current_company_id', $1, true)", [session.companyId]);
+
+    // Lock every active owner in one deterministic order before the target row.
+    // At PostgreSQL READ COMMITTED, a concurrent owner mutation waits here and
+    // then re-evaluates this predicate against the committed owner set. This
+    // prevents two owners from concurrently demoting one another to zero.
+    await tx.query(
+      `SELECT user_id
+       FROM company_members
+       WHERE company_id = $1 AND role = 'owner' AND is_active = true
+       ORDER BY user_id
+       FOR UPDATE`,
+      [session.companyId],
+    );
+
     const currentResult = await tx.query<{ role: Role; is_active: boolean; name: string }>(
       `SELECT m.role, m.is_active, u.name
        FROM company_members m JOIN users u ON u.id = m.user_id
-       WHERE m.company_id = $1 AND m.user_id = $2 FOR UPDATE`,
+       WHERE m.company_id = $1 AND m.user_id = $2 FOR UPDATE OF m`,
       [session.companyId, input.userId],
     );
     const current = currentResult.rows[0];
@@ -109,7 +124,7 @@ export async function updateMember(
       "UPDATE company_members SET role = $3, is_active = $4, updated_at = now() WHERE company_id = $1 AND user_id = $2",
       [session.companyId, input.userId, input.role, input.isActive],
     );
-    await tx.query("UPDATE sessions SET revoked_at = now() WHERE company_id = $1 AND user_id = $2 AND revoked_at IS NULL", [session.companyId, input.userId]);
+    await tx.query("SELECT public.moarix_revoke_user_sessions($1, $2)", [session.companyId, input.userId]);
     await writeAudit(tx, {
       companyId: session.companyId,
       actorUserId: session.userId,

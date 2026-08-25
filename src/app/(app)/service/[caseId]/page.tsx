@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, ExternalLink, FileArchive, MessageSquareText, Paperclip } from "lucide-react";
+import { ArrowLeft, ExternalLink, FileArchive, MessageSquareText, Paperclip, UsersRound } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
@@ -12,6 +12,7 @@ import { hasPermission } from "@/lib/security/permissions";
 import { getServiceCaseDetail, type ServiceCaseActivityKind } from "@/lib/services/service-cases";
 import { CaseActivityForm } from "../case-activity-form";
 import { CaseAttachmentForm } from "../case-attachment-form";
+import { CaseWatcherForm } from "../case-watcher-form";
 import { ServiceTransitionForm } from "../service-transition-form";
 
 export const metadata: Metadata = { title: "서비스 케이스 상세" };
@@ -32,6 +33,13 @@ const activityLabels: Record<ServiceCaseActivityKind, string> = {
   status_change: "상태 변경",
   system: "시스템",
 };
+
+const watcherSourceLabels = {
+  manual: "개별 수신자",
+  customer: "고객",
+  vendor: "지원사",
+  distribution_list: "배포 목록",
+} as const;
 
 function formatDateTime(value: string | null, timeZone: string) {
   if (!value) return "—";
@@ -54,7 +62,7 @@ export default async function ServiceCaseDetailPage({ params }: { params: Promis
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(caseId)) notFound();
   const result = await getServiceCaseDetail(session.companyId, caseId);
   if (!result) notFound();
-  const { detail, activities, attachments } = result;
+  const { detail, activities, attachments, watchers } = result;
   const canWrite = hasPermission(session.role, "service:write");
   const sla = getServiceCaseSlaHealth(detail.status, detail.due_at);
   const transitions = allowedServiceCaseTransitions(detail.status);
@@ -92,18 +100,23 @@ export default async function ServiceCaseDetailPage({ params }: { params: Promis
       <aside className="card span-4">
         <header className="card-header"><div><h2>Account Information</h2><p>고객·지원 권한·자산 연결 정보</p></div></header>
         <dl className="detail-list">
-          <div><dt>Account</dt><dd>{detail.counterparty_name}</dd></div>
+          <div><dt>Account</dt><dd><Link className="table-link" href={`/counterparties/${detail.counterparty_id}`}>{detail.counterparty_name}</Link></dd></div>
           <div><dt>Account 연락처</dt><dd>{detail.counterparty_email ?? detail.counterparty_phone ?? "—"}</dd></div>
           <div><dt>Contact</dt><dd>{detail.contact_name ?? "—"}{detail.contact_email ? <small>{detail.contact_email}</small> : null}{detail.contact_phone ? <small>{detail.contact_phone}</small> : null}</dd></div>
           <div><dt>Entitlement</dt><dd>{detail.entitlement ?? detail.support_level ?? "—"}</dd></div>
-          <div><dt>Asset</dt><dd>{detail.vendor_asset_id ?? detail.asset_tag ?? "—"}{detail.asset_tag && detail.vendor_asset_id ? <small>{detail.asset_tag}</small> : null}</dd></div>
+          <div><dt>Asset</dt><dd>{detail.asset_id ? <Link className="table-link" href={`/assets/${detail.asset_id}`}>{detail.vendor_asset_id ?? detail.asset_tag ?? "자산 상세"}</Link> : "—"}{detail.asset_tag && detail.vendor_asset_id ? <small>{detail.asset_tag}</small> : null}</dd></div>
           <div><dt>Product</dt><dd>{detail.product_name ?? "—"}{detail.product_model ? <small>{detail.product_model}</small> : null}{detail.software_version ? <small>버전 {detail.software_version}</small> : null}</dd></div>
-          <div><dt>Site</dt><dd>{detail.site_name ?? "—"}</dd></div>
+          <div><dt>Site</dt><dd>{detail.site_id ? <Link className="table-link" href="/sites">{detail.site_name ?? "사업장 디렉터리"}</Link> : "—"}</dd></div>
           <div><dt>지원 계약</dt><dd>{detail.contract_number ?? "—"}{detail.support_provider ? <small>{detail.support_provider} · {detail.support_level ?? "등급 미등록"}</small> : null}</dd></div>
           <div><dt>외부 상태</dt><dd>{detail.external_state ?? "—"}</dd></div>
         </dl>
       </aside>
     </div>
+
+    <section className="card case-section">
+      <header className="card-header"><div><h2><UsersRound size={17} />Task Watch List</h2><p>{watchers.length}명 · 케이스 알림 수신자와 배포 목록</p></div>{canWrite ? <details className="case-entry-panel"><summary className="button">수신자 추가</summary><div className="case-entry-popover"><CaseWatcherForm caseId={detail.id} /></div></details> : null}</header>
+      {watchers.length === 0 ? <div className="card-body"><EmptyState title="등록된 Watch List 수신자가 없습니다." description="케이스 업데이트를 공유할 고객·지원사 이메일을 등록하세요." /></div> : <div className="table-wrap"><table className="data-table"><thead><tr><th>수신자</th><th>이메일</th><th>구분</th><th>등록자·일시</th></tr></thead><tbody>{watchers.map((watcher) => <tr key={watcher.id}><td>{watcher.display_name ?? "—"}</td><td><a className="table-link" href={`mailto:${watcher.email}`}>{watcher.email}</a></td><td>{watcherSourceLabels[watcher.source]}</td><td><div className="table-title"><strong>{watcher.created_by_name}</strong><small>{formatDateTime(watcher.created_at, session.companyTimezone)}</small></div></td></tr>)}</tbody></table></div>}
+    </section>
 
     <section className="card case-section">
       <header className="card-header"><div><h2><MessageSquareText size={17} />활동</h2><p>{activities.length}건 · 고객/지원사 회신과 내부 작업 이력</p></div>{canWrite ? <details className="case-entry-panel"><summary className="button primary">활동 기록</summary><div className="case-entry-popover"><CaseActivityForm caseId={detail.id} /></div></details> : null}</header>
