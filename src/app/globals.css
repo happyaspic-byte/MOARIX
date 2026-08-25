@@ -353,7 +353,7 @@ textarea { min-height: 88px; resize: vertical; }
 .contract-chain { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; padding: 18px; }
 .contract-card { min-width: 0; border: 1px solid var(--line); border-radius: 11px; padding: 15px; background: var(--surface-soft); }
 .contract-card.current { border-color: #b7d8cf; background: #f7fcfa; }
-.contract-card.history { opacity: .72; }
+.contract-card.history { border-style: dashed; }
 .contract-card > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .contract-card > header > div { display: grid; gap: 3px; min-width: 0; }
 .contract-card > header strong { font-size: .78rem; }
