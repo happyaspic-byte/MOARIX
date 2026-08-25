@@ -45,3 +45,4 @@ services:
 
 volumes:
   moarix_postgres:
+# auto-update test
