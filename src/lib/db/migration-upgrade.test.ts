@@ -12,7 +12,7 @@ afterAll(async () => {
 });
 
 describe("database migration upgrade", () => {
-  it("upgrades a populated 0.3 database through the Stratus 0.4 migrations", async () => {
+  it("upgrades a populated 0.3 database through the current migrations", async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "moarix-upgrade-"));
     temporaryDirectories.push(directory);
     const database = new PGlite(path.join(directory, "pglite"));
@@ -127,10 +127,10 @@ describe("database migration upgrade", () => {
        WHERE table_schema = 'public' AND table_name IN
          ('asset_nodes', 'asset_network_interfaces', 'asset_virtual_machines',
           'asset_support_contracts', 'asset_licenses', 'inspection_check_items',
-          'service_case_watchers')
+          'service_case_watchers', 'driving_logs')
        ORDER BY table_name`,
     );
-    expect(newTables.rows).toHaveLength(7);
+    expect(newTables.rows).toHaveLength(8);
     const backfilledChecklist = await database.query<{ item_count: string }>(
       `SELECT COUNT(*)::text AS item_count
        FROM inspection_check_items
@@ -159,5 +159,5 @@ describe("database migration upgrade", () => {
     );
     expect(new Date(repairedCaseUpdatedAt.rows[0]!.updated_at).toISOString()).toBe("2026-03-01T00:00:00.000Z");
     await database.close();
-  }, 30_000);
+  }, 60_000);
 });

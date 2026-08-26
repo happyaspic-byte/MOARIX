@@ -145,11 +145,29 @@ jobs:
           SESSION_SECRET: postgres-security-ci-session-secret-42
         run: npm run test:rls
 
-      - name: Build PostgreSQL runtime image
-        run: docker build -t moarix:postgres-security .
-
-      - name: Verify restricted app-role image boot
+      - name: Build PostgreSQL runtime and admin images
         run: |
+          docker build -t moarix:postgres-security .
+          docker build --target admin -t moarix:admin-ci .
+
+      - name: Verify image CLI token lifecycle with restricted app role
+        run: |
+          token=$(docker run --rm --network host \
+            --env DATABASE_DRIVER=postgres \
+            --env DATABASE_URL=postgresql://moarix_owner:MoarixOwnerCI42Secure@127.0.0.1:5432/moarix \
+            --env SESSION_SECRET=postgres-security-ci-session-secret-42 \
+            moarix:admin-ci \
+            node --import tsx scripts/issue-api-token.ts \
+              --company synthetic-bootstrap \
+              --email bootstrap-ci@example.invalid \
+              --name 'Container lifecycle test' \
+              --scopes context:read \
+              --expires-in-days 1)
+          if ! [[ "$token" =~ ^mxk_[A-Za-z0-9_-]{43}$ ]]; then
+            echo 'Admin image did not return one valid API token' >&2
+            exit 1
+          fi
+
           container_id=$(docker run --detach --network host \
             --env DATABASE_DRIVER=postgres \
             --env DATABASE_URL=postgresql://moarix_app:MoarixAppCI42Secure@127.0.0.1:5432/moarix \
@@ -164,3 +182,30 @@ jobs:
           curl --fail --silent --show-error \
             --retry 20 --retry-delay 1 --retry-all-errors \
             http://127.0.0.1:3000/api/health
+          docker exec \
+            --env MOARIX_URL=http://127.0.0.1:3000 \
+            --env MOARIX_TOKEN="$token" \
+            "$container_id" moarix context --machine > /tmp/moarix-cli-context.json
+          node --input-type=module -e \
+            'import fs from "node:fs"; const body=JSON.parse(fs.readFileSync("/tmp/moarix-cli-context.json","utf8")); if (!body.ok || body.data.company.name !== "Synthetic Bootstrap Company") process.exit(1)'
+
+          docker run --rm --network host \
+            --env DATABASE_DRIVER=postgres \
+            --env DATABASE_URL=postgresql://moarix_owner:MoarixOwnerCI42Secure@127.0.0.1:5432/moarix \
+            --env SESSION_SECRET=postgres-security-ci-session-secret-42 \
+            --env API_TOKEN_COMPANY_SLUG=synthetic-bootstrap \
+            --env API_TOKEN_PREFIX="${token:0:16}" \
+            moarix:admin-ci \
+            node --import tsx scripts/revoke-api-token.ts
+
+          if docker exec \
+            --env MOARIX_URL=http://127.0.0.1:3000 \
+            --env MOARIX_TOKEN="$token" \
+            "$container_id" moarix context --machine \
+            > /tmp/moarix-revoked-stdout.json \
+            2> /tmp/moarix-revoked-stderr.json; then
+            echo 'Revoked API token was still accepted' >&2
+            exit 1
+          fi
+          node --input-type=module -e \
+            'import fs from "node:fs"; const body=JSON.parse(fs.readFileSync("/tmp/moarix-revoked-stderr.json","utf8")); if (body.ok || body.error.code !== "AUTH_REQUIRED" || body.meta.httpStatus !== 401) process.exit(1)'

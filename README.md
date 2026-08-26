@@ -23,10 +23,12 @@ MOARIX는 중소·중견 조직을 위한 멀티테넌트 영업·구매·재고
 - Protection·Sync·Service와 자원 사용률을 기록하는 불변 정기점검 체크리스트
 - 고객·자산 일치 검증, 외부 CS 번호, 심각도·SLA·다음 조치 우선순위
 - 서비스 케이스 상세, 고객/지원 권한/자산 정보, Task Watch List, 추가 전용 활동·상태 타임라인
+- 운행 거리·단가·통행료·주차·유류·일비 자동 합계, 작성 → 제출 → 독립 승인 → 무효 운행일지
 - 고객 360° 화면과 고객 → 사업장 → 자산 → 점검·케이스 상호 이동
 - 대용량 진단 자료를 위한 HTTPS 첨부 링크·크기 메타데이터와 외부 원문 열기
 - 대시보드, 표준 실적·재고 평가·지원 계약·점검 운영 보고서
 - 추가 전용 감사 로그, 합성 데이터 개인정보 차단 게이트와 운영 헬스체크
+- `moarix`/`mx` AI 운영 CLI, 기능 탐색 JSON Schema, 최소 권한 API 토큰, dry-run과 멱등 쓰기
 - 반응형 한국어 UI, Docker/PostgreSQL 운영 구성
 
 ## 기술 구성
@@ -36,7 +38,7 @@ MOARIX는 중소·중견 조직을 위한 멀티테넌트 영업·구매·재고
 - Zod, Decimal.js, bcrypt
 - Vitest, Playwright, axe-core
 
-상세 설계는 [아키텍처](docs/ARCHITECTURE.md), 운영 절차는 [운영 가이드](docs/OPERATIONS.md)를 참고하세요.
+상세 설계는 [아키텍처](docs/ARCHITECTURE.md), 운영 절차는 [운영 가이드](docs/OPERATIONS.md), AI 자동화는 [CLI 가이드](docs/AI_CLI_GUIDE.md)와 [명령 참조](docs/CLI_REFERENCE.md)를 참고하세요.
 
 ## 로컬 실행
 
@@ -52,6 +54,41 @@ npm run dev
 `.env.local`의 `SEED_DEMO_EMAIL`과 `SEED_DEMO_PASSWORD`를 원하는 로컬 계정으로 먼저 바꾸세요. 시드 비밀번호는 로그에 출력되지 않으며, 프로덕션에서는 시드가 기본 차단됩니다.
 
 기본 주소는 `http://localhost:3000`입니다. 데이터는 기본적으로 `.data/pglite`에 저장됩니다.
+
+## AI/자동화 CLI
+
+브라우저 없이 반복 업무를 처리할 때는 의존성 없는 `moarix` 명령(짧은 별칭 `mx`)을 사용합니다. CLI는 DB에 직접 접속하지 않고 인증된 `/api/v1` 명령 API를 통해 기존 서비스·RLS·감사 경계를 그대로 통과합니다.
+
+```bash
+npm run --silent api-token:issue -- \
+  --company moarix-demo \
+  --email admin@moarix.local \
+  --name 'Local AI CLI' \
+  --scopes 'context:read,assets:read,cases:read,trips:read,reports:read' \
+  --expires-in-days 30
+
+MOARIX_URL=http://localhost:3000 \
+MOARIX_TOKEN="$MOARIX_AUTOMATION_TOKEN" \
+node bin/moarix.mjs capabilities --agent
+```
+
+토큰 발급·폐기는 마이그레이션 소유자 환경에서만 실행합니다. 전체 토큰은 발급 시 한 번만 표시되므로 프롬프트나 셸 인자에 넣지 말고 비밀 관리 시스템에서 프로세스 환경으로 주입하세요. 생성·수정·상태 전이는 먼저 `--dry-run`으로 스키마·권한을 확인하고, 실제 쓰기 재시도에는 같은 `--idempotency-key`를 사용합니다.
+
+Compose 운영 환경에서는 소유자 DB 연결과 관리 도구가 분리된 일회성 `migrate` 이미지로 토큰을 발급합니다. 애플리케이션 이미지에는 `moarix`와 `mx`가 함께 설치됩니다.
+
+```bash
+docker compose run --rm migrate npm run --silent api-token:issue -- \
+  --company company-slug \
+  --email owner@example.com \
+  --name 'Operations AI' \
+  --scopes 'context:read,assets:read,cases:read,cases:write' \
+  --expires-in-days 30
+
+docker compose exec \
+  -e MOARIX_URL=http://127.0.0.1:3000 \
+  -e MOARIX_TOKEN="$MOARIX_AUTOMATION_TOKEN" \
+  app moarix context --machine
+```
 
 ## PostgreSQL 운영 실행
 
@@ -96,6 +133,9 @@ docker compose run --rm \
 | `DATABASE_POOL_MAX` | PostgreSQL 풀 크기 | 기본 10, 인스턴스 수와 함께 산정 |
 | `SEED_DEMO_EMAIL` | 로컬 시드 계정 | 운영 사용 금지 |
 | `SEED_DEMO_PASSWORD` | 로컬 시드 비밀번호 | 운영 사용 금지 |
+| `MOARIX_URL` | CLI가 호출할 서버 기준 주소 | HTTPS 운영 주소 |
+| `MOARIX_TOKEN` | AI/CLI Bearer 토큰 | 비밀 저장소에서 환경 주입 |
+| `MOARIX_TIMEOUT_MS` | CLI 요청 제한 시간 | 기본 30,000ms |
 
 ## 검증
 
@@ -132,7 +172,7 @@ E2E_PASSWORD="$SEED_DEMO_PASSWORD" npm run test:e2e
 
 외부 지원 포털은 로그인 세션과 공급자 프레임 정책에 종속되므로 iframe으로 삽입하지 않습니다. MOARIX에는 필요한 케이스 내용을 독립적으로 보존하고, 원문은 검증된 HTTPS 주소를 새 창에서 여는 방식으로 연결합니다. 실제 파일 업로드는 객체 저장소의 서명 URL·악성코드 검사·보유 정책이 준비된 뒤 활성화해야 합니다.
 
-CI는 개인정보·현실형 식별자 검사, 린트, 타입 검사, 커버리지, 마이그레이션, 프로덕션 빌드, 도메인/HTTP 스모크, Playwright, Docker 빌드와 실제 PostgreSQL 17의 제한 역할·RLS 교차 테넌트 차단을 모두 검사합니다.
+CI는 개인정보·현실형 식별자 검사, 린트, 타입 검사, 커버리지, 마이그레이션, 프로덕션 빌드, 도메인/HTTP 스모크, 실제 CLI → API → 서비스 → DB 흐름, Playwright, Docker 빌드와 실제 PostgreSQL 17의 제한 역할·RLS·API 토큰 경계를 모두 검사합니다.
 
 ## 운영 전 필수 점검
 

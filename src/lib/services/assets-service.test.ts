@@ -491,6 +491,31 @@ describe("Stratus asset service on PGlite", () => {
     await transitionInspection(session, { inspectionId: laterInspection.id, nextStatus: "cancelled" });
     expect(await nextInspectionDate()).toBe("2027-01-15");
 
+    await updateAssetOperationsProfile(session, {
+      assetId,
+      status: "active",
+      businessSystem: "합성 생산 시스템",
+      environment: "production",
+      hardwareVendor: "Synthetic Hardware",
+      rackLocation: "SYN-RACK-01",
+      hypervisor: "Synthetic Hypervisor",
+      assignedEngineerId: userId,
+      configurationSource: "inspection",
+      configurationCheckedAt: "2026-08-25T11:00",
+    });
+    await updateAssetOperationsProfile(session, { assetId, status: "maintenance" });
+    const partiallyUpdated = await getAssetWorkspace(companyId, assetId);
+    expect(partiallyUpdated?.asset).toMatchObject({
+      status: "maintenance",
+      business_system: "합성 생산 시스템",
+      environment: "production",
+      hardware_vendor: "Synthetic Hardware",
+      rack_location: "SYN-RACK-01",
+      hypervisor: "Synthetic Hypervisor",
+      assigned_engineer_id: userId,
+      configuration_source: "inspection",
+    });
+
     const serviceCase = await createServiceCase(session, {
       counterpartyId: customerId,
       assetId,
@@ -521,5 +546,5 @@ describe("Stratus asset service on PGlite", () => {
       name: "SYN-NODE0-RETIRED-WRITE",
       status: "offline",
     })).rejects.toThrow("Operational asset not found");
-  }, 20_000);
+  }, 60_000);
 });

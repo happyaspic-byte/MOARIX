@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createSessionToken, hashSessionToken, safeTokenHashEquals } from "./session-token";
 
 describe("session tokens", () => {
@@ -15,5 +15,17 @@ describe("session tokens", () => {
     expect(safeTokenHashEquals(hash, hashSessionToken("token-a"))).toBe(true);
     expect(safeTokenHashEquals(hash, hashSessionToken("token-b"))).toBe(false);
     expect(safeTokenHashEquals(hash, "short")).toBe(false);
+  });
+
+  it("never uses the development fallback in production", () => {
+    try {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("SESSION_SECRET", undefined);
+      expect(() => hashSessionToken("token")).toThrow(/SESSION_SECRET is required/);
+      vi.stubEnv("SESSION_SECRET", "too-short");
+      expect(() => hashSessionToken("token")).toThrow(/at least 32/);
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });

@@ -39,6 +39,31 @@ export type DocumentRow = {
   created_by_name: string;
 };
 
+export type DocumentDetailRow = DocumentRow & {
+  counterparty_id: string;
+  notes: string | null;
+  version: number;
+  approved_by_name: string | null;
+  approved_at: string | null;
+  posted_at: string | null;
+};
+
+export type DocumentLineRow = {
+  id: string;
+  item_id: string | null;
+  position: number;
+  sku_snapshot: string | null;
+  name_snapshot: string;
+  unit_snapshot: string;
+  quantity: string;
+  unit_price: string;
+  discount_rate: string;
+  tax_rate: string;
+  net_amount: string;
+  tax_amount: string;
+  gross_amount: string;
+};
+
 export function listDocuments(companyId: string, kind: DocumentKind) {
   return withCompany(companyId, async (tx) => {
     const result = await tx.query<DocumentRow>(
@@ -53,6 +78,33 @@ export function listDocuments(companyId: string, kind: DocumentKind) {
       [kind],
     );
     return result.rows;
+  });
+}
+
+export function getDocumentDetail(companyId: string, documentId: string, kind?: DocumentKind) {
+  return withCompany(companyId, async (tx) => {
+    const documentResult = await tx.query<DocumentDetailRow>(
+      `SELECT d.id, d.kind, d.number, d.counterparty_id, c.name AS counterparty_name,
+              d.status, d.issue_date::text, d.due_date::text, d.currency,
+              d.grand_total::text, d.notes, d.version, creator.name AS created_by_name,
+              approver.name AS approved_by_name, d.approved_at::text, d.posted_at::text
+       FROM documents d
+       JOIN counterparties c ON c.company_id = d.company_id AND c.id = d.counterparty_id
+       JOIN users creator ON creator.id = d.created_by
+       LEFT JOIN users approver ON approver.id = d.approved_by
+       WHERE d.id = $1 AND ($2::text IS NULL OR d.kind = $2)`,
+      [documentId, kind ?? null],
+    );
+    const document = documentResult.rows[0];
+    if (!document) return null;
+    const lines = await tx.query<DocumentLineRow>(
+      `SELECT id, item_id, position, sku_snapshot, name_snapshot, unit_snapshot,
+              quantity::text, unit_price::text, discount_rate::text, tax_rate::text,
+              net_amount::text, tax_amount::text, gross_amount::text
+       FROM document_lines WHERE document_id = $1 ORDER BY position`,
+      [documentId],
+    );
+    return { document, lines: lines.rows };
   });
 }
 
@@ -91,6 +143,12 @@ export type CreateDocumentInput = {
   discountRate: string;
   taxRate: string;
   notes?: string;
+};
+
+export type UpdateDraftDocumentInput = Omit<CreateDocumentInput, "kind"> & {
+  documentId: string;
+  kind: DocumentKind;
+  expectedVersion: number;
 };
 
 export function createDocument(session: SessionContext, input: CreateDocumentInput) {
@@ -145,6 +203,79 @@ export function createDocument(session: SessionContext, input: CreateDocumentInp
       afterData: { number, kind: input.kind, status: "draft", grandTotal: amounts.gross },
     });
     return { id, number };
+  });
+}
+
+export function updateDraftDocument(session: SessionContext, input: UpdateDraftDocumentInput) {
+  return withCompany(session.companyId, async (tx) => {
+    const currentResult = await tx.query<{
+      status: DocumentStatus;
+      number: string;
+      version: number;
+      grand_total: string;
+    }>(
+      `SELECT status, number, version, grand_total::text
+       FROM documents WHERE id = $1 AND kind = $2 FOR UPDATE`,
+      [input.documentId, input.kind],
+    );
+    const current = currentResult.rows[0];
+    if (!current) throw new Error("Document not found");
+    if (current.status !== "draft") throw new Error("Only draft documents can be edited");
+    if (current.version !== input.expectedVersion) throw new Error("Document version conflict");
+
+    const itemResult = await tx.query<{ id: string; sku: string; name: string; unit: string }>(
+      "SELECT id, sku, name, unit FROM items WHERE id = $1 AND is_active = true",
+      [input.itemId],
+    );
+    const item = itemResult.rows[0];
+    if (!item) throw new Error("Item not found");
+    const counterparty = await tx.query<{ id: string }>(
+      "SELECT id FROM counterparties WHERE id = $1 AND is_active = true",
+      [input.counterpartyId],
+    );
+    if (!counterparty.rows[0]) throw new Error("Counterparty not found");
+    const lineResult = await tx.query<{ id: string }>(
+      "SELECT id FROM document_lines WHERE document_id = $1 ORDER BY position",
+      [input.documentId],
+    );
+    if (lineResult.rows.length !== 1) throw new Error("Only single-line draft documents can be edited through this operation");
+
+    const amounts = calculateLine({
+      quantity: input.quantity,
+      unitPrice: input.unitPrice,
+      discountRate: input.discountRate,
+      taxRate: input.taxRate,
+      currency: "KRW",
+    });
+    await tx.query(
+      `UPDATE documents
+       SET counterparty_id = $2, issue_date = $3, due_date = $4,
+           subtotal = $5, discount_total = $6, tax_total = $7, grand_total = $8,
+           notes = $9, version = version + 1
+       WHERE id = $1`,
+      [input.documentId, input.counterpartyId, input.issueDate, input.dueDate || null,
+        amounts.net, amounts.discount, amounts.tax, amounts.gross, input.notes || null],
+    );
+    await tx.query(
+      `UPDATE document_lines
+       SET item_id = $2, sku_snapshot = $3, name_snapshot = $4, unit_snapshot = $5,
+           quantity = $6, unit_price = $7, discount_rate = $8, tax_rate = $9,
+           net_amount = $10, tax_amount = $11, gross_amount = $12
+       WHERE id = $1`,
+      [lineResult.rows[0]!.id, item.id, item.sku, item.name, item.unit, input.quantity,
+        input.unitPrice, input.discountRate, input.taxRate, amounts.net, amounts.tax, amounts.gross],
+    );
+    await writeAudit(tx, {
+      companyId: session.companyId,
+      actorUserId: session.userId,
+      action: "document.draft_updated",
+      entityType: "document",
+      entityId: input.documentId,
+      summary: `${current.number} 초안 수정`,
+      beforeData: { version: current.version, grandTotal: current.grand_total },
+      afterData: { version: current.version + 1, grandTotal: amounts.gross },
+    });
+    return { id: input.documentId, number: current.number, version: current.version + 1 };
   });
 }
 

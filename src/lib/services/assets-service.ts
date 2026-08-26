@@ -610,21 +610,36 @@ export function updateAssetLicense(session: SessionContext, input: AssetLicenseU
 }
 
 export type AssetProfileInput = {
-  assetId: string; status: AssetRow["status"]; businessSystem?: string;
-  environment: AssetRow["environment"]; hardwareVendor?: string; rackLocation?: string;
-  hypervisor?: string; assignedEngineerId?: string; configurationSource: AssetRow["configuration_source"];
+  assetId: string; status?: AssetRow["status"]; businessSystem?: string;
+  environment?: AssetRow["environment"]; hardwareVendor?: string; rackLocation?: string;
+  hypervisor?: string; assignedEngineerId?: string; configurationSource?: AssetRow["configuration_source"];
   configurationCheckedAt?: string;
 };
 export function updateAssetOperationsProfile(session: SessionContext, input: AssetProfileInput) {
   return withCompany(session.companyId, async (tx) => {
-    const currentResult = await tx.query<{ asset_tag: string; status: AssetRow["status"] }>("SELECT asset_tag, status FROM assets WHERE id = $1 FOR UPDATE", [input.assetId]);
+    const currentResult = await tx.query<{
+      asset_tag: string;
+      status: AssetRow["status"];
+      business_system: string | null;
+      environment: AssetRow["environment"];
+      hardware_vendor: string | null;
+      rack_location: string | null;
+      hypervisor: string | null;
+      assigned_engineer_id: string | null;
+      configuration_source: AssetRow["configuration_source"];
+      configuration_checked_at: string | null;
+    }>(`SELECT asset_tag, status, business_system, environment, hardware_vendor,
+               rack_location, hypervisor, assigned_engineer_id, configuration_source,
+               configuration_checked_at::text
+        FROM assets WHERE id = $1 FOR UPDATE`, [input.assetId]);
     const current = currentResult.rows[0];
     if (!current) throw new Error("Asset not found");
-    if (input.assignedEngineerId) {
+    if (input.assignedEngineerId !== undefined && input.assignedEngineerId) {
       const member = await tx.query("SELECT user_id FROM company_members WHERE user_id = $1 AND is_active = true", [input.assignedEngineerId]);
       if (!member.rows[0]) throw new Error("Assigned engineer is not an active company member");
     }
-    if (input.status === "retired" && current.status !== "retired") {
+    const nextStatus = input.status ?? current.status;
+    if (nextStatus === "retired" && current.status !== "retired") {
       const blockers = await tx.query<{ active_cases: string; active_inspections: string }>(`SELECT
         (SELECT COUNT(*)::text FROM service_cases WHERE asset_id = $1 AND status IN ('open','in_progress','waiting')) AS active_cases,
         (SELECT COUNT(*)::text FROM maintenance_inspections WHERE asset_id = $1 AND status IN ('scheduled','in_progress','issue_found')) AS active_inspections`, [input.assetId]);
@@ -635,8 +650,38 @@ export function updateAssetOperationsProfile(session: SessionContext, input: Ass
     await tx.query(`UPDATE assets SET status = $2, business_system = $3, environment = $4,
       hardware_vendor = $5, rack_location = $6, hypervisor = $7, assigned_engineer_id = $8,
       configuration_source = $9,
-      configuration_checked_at = timezone($11::text, NULLIF($10::text, '')::timestamp)
-      WHERE id = $1`, [input.assetId, input.status, input.businessSystem || null, input.environment, input.hardwareVendor || null, input.rackLocation || null, input.hypervisor || null, input.assignedEngineerId || null, input.configurationSource, input.configurationCheckedAt || null, session.companyTimezone]);
-    await writeAudit(tx, { companyId: session.companyId, actorUserId: session.userId, action: "asset.operations_profile_updated", entityType: "asset", entityId: input.assetId, summary: `${current.asset_tag} 운영 프로필 변경`, beforeData: { status: current.status }, afterData: { status: input.status, environment: input.environment, businessSystem: input.businessSystem, assignedEngineerId: input.assignedEngineerId } });
+      configuration_checked_at = CASE WHEN $10::boolean
+        THEN timezone($12::text, NULLIF($11::text, '')::timestamp)
+        ELSE configuration_checked_at END
+      WHERE id = $1`, [
+      input.assetId,
+      nextStatus,
+      input.businessSystem === undefined ? current.business_system : input.businessSystem || null,
+      input.environment ?? current.environment,
+      input.hardwareVendor === undefined ? current.hardware_vendor : input.hardwareVendor || null,
+      input.rackLocation === undefined ? current.rack_location : input.rackLocation || null,
+      input.hypervisor === undefined ? current.hypervisor : input.hypervisor || null,
+      input.assignedEngineerId === undefined ? current.assigned_engineer_id : input.assignedEngineerId || null,
+      input.configurationSource ?? current.configuration_source,
+      input.configurationCheckedAt !== undefined,
+      input.configurationCheckedAt || null,
+      session.companyTimezone,
+    ]);
+    await writeAudit(tx, {
+      companyId: session.companyId,
+      actorUserId: session.userId,
+      action: "asset.operations_profile_updated",
+      entityType: "asset",
+      entityId: input.assetId,
+      summary: `${current.asset_tag} 운영 프로필 변경`,
+      beforeData: current,
+      afterData: {
+        status: nextStatus,
+        environment: input.environment ?? current.environment,
+        businessSystem: input.businessSystem === undefined ? current.business_system : input.businessSystem || null,
+        assignedEngineerId: input.assignedEngineerId === undefined ? current.assigned_engineer_id : input.assignedEngineerId || null,
+        configurationSource: input.configurationSource ?? current.configuration_source,
+      },
+    });
   });
 }

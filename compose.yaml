@@ -15,7 +15,9 @@ services:
       retries: 12
 
   migrate:
-    build: .
+    build:
+      context: .
+      target: admin
     depends_on:
       database:
         condition: service_healthy
@@ -24,6 +26,7 @@ services:
       DATABASE_URL: postgresql://moarix_owner:${POSTGRES_PASSWORD:-change-this-database-password}@database:5432/moarix
       DATABASE_APP_USER: moarix_app
       DATABASE_APP_PASSWORD: ${DATABASE_APP_PASSWORD:-change-this-app-database-password}
+      SESSION_SECRET: ${SESSION_SECRET:?Set SESSION_SECRET to at least 32 random characters}
     command: ["node", "scripts/migrate-runtime.mjs"]
 
   app:

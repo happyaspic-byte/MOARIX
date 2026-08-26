@@ -128,7 +128,7 @@ beforeAll(async () => {
       [randomUUID(), companyId, coveredAssetId, siteId, userId],
     );
   });
-}, 20_000);
+}, 60_000);
 
 afterAll(async () => {
   await (await getDatabase()).close();

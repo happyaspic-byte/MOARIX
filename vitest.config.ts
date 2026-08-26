@@ -13,7 +13,12 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["src/**/*.test.ts"],
-    hookTimeout: 30_000,
+    // Each integration suite boots an isolated PGlite/PostgreSQL-compatible
+    // database and runs every migration. Limiting workers avoids WASM startup
+    // contention while keeping the unit suites parallel.
+    maxWorkers: 2,
+    hookTimeout: 60_000,
+    testTimeout: 60_000,
     coverage: {
       provider: "v8",
       reporter: ["text", "json-summary"],
