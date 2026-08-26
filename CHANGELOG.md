@@ -1,5 +1,19 @@
 # 변경 기록
 
+## 0.5.0 - 2026-08-26
+
+- `moarix`/`mx` 의존성 없는 ESM CLI와 안정적인 JSON/stdout·stderr·종료 코드 계약
+- 회사·사용자 역할과 교집합으로 제한되는 만료·폐기 가능 API 토큰, 원문 미저장 HMAC 해시와 PostgreSQL 제한 역할 검증
+- `/api/v1/context`, `/api/v1/capabilities`, `/api/v1/commands` 및 AI가 읽는 입력 JSON Schema
+- 고객·품목·사업장, Stratus 자산 토폴로지·계약·라이선스, 케이스·첨부·워처, 점검, 견적, 보고서 명령 레지스트리
+- 운행일지 거리·비용 계산, 버전 충돌 방지, 제출·독립 승인·무효 상태 머신과 월별 집계
+- 단일 품목 견적 초안의 버전 기반 수정과 상세 라인 조회
+- 쓰기 dry-run, 토큰별 멱등 요청·재생, 사람용 번호/Asset ID 정확 일치와 모호한 참조 거부
+- 실제 CLI → HTTP API → 서비스 → RLS DB와 API 토큰 직접 테이블 접근 차단을 포함한 런타임·PostgreSQL 보안 스모크
+- 운영에서 `SESSION_SECRET` 누락 시 개발용 HMAC 비밀값 사용을 즉시 차단
+- 원격 CLI HTTPS 강제, 승인 전용 scope, streaming 1 MiB 제한과 불명확한 쓰기 결과의 재시도 키 반환
+- Docker 관리자 이미지의 토큰 발급·폐기와 런타임 이미지 CLI를 PostgreSQL CI에서 end-to-end 검증
+
 ## 0.4.0 - 2026-08-25
 
 - Stratus 자산 360° 워크스페이스와 위험 우선 자산 운영 큐, 검색·고객·사업장·제품·보호·지원 필터

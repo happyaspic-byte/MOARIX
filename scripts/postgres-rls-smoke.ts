@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
+import { authenticateApiToken, createApiTokenCredential, hashApiToken } from "../src/lib/auth/api-token";
 import { authenticate, findSession, revokeSession } from "../src/lib/auth/repository";
 import { getDatabase, withCompany } from "../src/lib/db/client";
 import { hashPassword } from "../src/lib/security/password";
@@ -91,6 +92,7 @@ try {
     inspectionId: string;
     checkItemId: string;
     watcherId: string;
+    drivingLogId: string;
   };
 
   const createTenantAsset = (
@@ -111,6 +113,7 @@ try {
       inspectionId: randomUUID(),
       checkItemId: randomUUID(),
       watcherId: randomUUID(),
+      drivingLogId: randomUUID(),
     };
 
     await tx.query(
@@ -195,6 +198,27 @@ try {
        VALUES ($1, $2, $3, $4, $5, $6)`,
       [fixture.watcherId, companyId, serviceCaseId, `watcher-${label}-${suffix}@example.invalid`, `Watcher ${label}`, userId],
     );
+    await tx.query(
+      `INSERT INTO driving_logs
+         (id, company_id, number, start_date, end_date, departure, destination,
+          purpose, vehicle_name, distance_km, rate_per_km, total_amount,
+          counterparty_id, site_id, case_id, created_by)
+       VALUES ($1, $2, $3, CURRENT_DATE, CURRENT_DATE, $4, $5, $6, $7,
+               10, 200, 2000, $8, $9, $10, $11)`,
+      [
+        fixture.drivingLogId,
+        companyId,
+        `RLS-TRIP-${label}-${suffix}`,
+        `Departure ${label}`,
+        `Destination ${label}`,
+        `Purpose ${label}`,
+        `Vehicle ${label}`,
+        counterpartyId,
+        siteId,
+        serviceCaseId,
+        userId,
+      ],
+    );
     return fixture;
   });
 
@@ -222,6 +246,7 @@ try {
     ["asset_licenses", fixtureA.licenseId, fixtureB.licenseId],
     ["inspection_check_items", fixtureA.checkItemId, fixtureB.checkItemId],
     ["service_case_watchers", fixtureA.watcherId, fixtureB.watcherId],
+    ["driving_logs", fixtureA.drivingLogId, fixtureB.drivingLogId],
   ] as const;
   for (const [tableName, expectedId, hiddenId] of newTenantTables) {
     const visible = await withCompany(companyA, (tx) => tx.query<{ id: string }>(
@@ -286,6 +311,22 @@ try {
     "DELETE FROM sessions WHERE id = $1",
     [randomUUID()],
   ));
+  const restrictedApiCredential = createApiTokenCredential();
+  await expectPermissionDenied("api_tokens SELECT", () => database.query("SELECT id FROM api_tokens LIMIT 1"));
+  await expectPermissionDenied("api_tokens.token_hash", () => database.query("SELECT token_hash FROM api_tokens LIMIT 1"));
+  await expectPermissionDenied("api_tokens INSERT", () => database.query(
+    `INSERT INTO api_tokens
+       (id, company_id, user_id, name, token_hash, token_prefix, scopes, expires_at)
+     VALUES ($1, $2, $3, 'Denied API token', $4, $5, $6, now() + interval '1 day')`,
+    [
+      randomUUID(),
+      companyA,
+      userId,
+      restrictedApiCredential.tokenHash,
+      restrictedApiCredential.tokenPrefix,
+      ["context:read"],
+    ],
+  ));
   await expectPermissionDenied("schema_migrations", () => database.query("SELECT name FROM schema_migrations LIMIT 1"));
   await expectPermissionDenied("company creation", () => database.query(
     "INSERT INTO companies (id, slug, name) VALUES ($1, $2, 'Denied Company')",
@@ -301,6 +342,72 @@ try {
       && loginLookup.rows[0]?.user_id === userId
       && loginLookup.rows[0]?.password_hash === loginPasswordHash,
     "Controlled login lookup did not return the expected account",
+  );
+
+  const activeApiCredential = createApiTokenCredential();
+  const expiredApiCredential = createApiTokenCredential();
+  const activeApiTokenId = randomUUID();
+  await owner.query(
+    `INSERT INTO api_tokens
+       (id, company_id, user_id, name, token_hash, token_prefix, scopes, expires_at, created_at)
+     VALUES
+       ($1, $3, $4, 'PostgreSQL API smoke', $5, $6, $7, now() + interval '1 day', now()),
+       ($2, $3, $4, 'Expired PostgreSQL API smoke', $8, $9, $10,
+        now() - interval '1 day', now() - interval '2 days')`,
+    [
+      activeApiTokenId,
+      randomUUID(),
+      companyA,
+      userId,
+      activeApiCredential.tokenHash,
+      activeApiCredential.tokenPrefix,
+      ["context:read", "assets:*"],
+      expiredApiCredential.tokenHash,
+      expiredApiCredential.tokenPrefix,
+      ["context:read"],
+    ],
+  );
+
+  const apiActor = await authenticateApiToken(activeApiCredential.token);
+  invariant(
+    apiActor?.apiTokenId === activeApiTokenId
+      && apiActor.userId === userId
+      && apiActor.companyId === companyA
+      && apiActor.scopes.includes("assets:*"),
+    "Controlled API token lookup did not restore the expected tenant principal",
+  );
+  invariant(
+    await authenticateApiToken(expiredApiCredential.token) === null,
+    "Expired API token remained usable through the controlled lookup",
+  );
+  const apiTouch = await owner.query<{ was_touched: boolean }>(
+    `SELECT last_used_at > now() - interval '1 minute' AS was_touched
+     FROM api_tokens WHERE id = $1`,
+    [activeApiTokenId],
+  );
+  invariant(apiTouch.rows[0]?.was_touched, "API token lookup did not update last_used_at");
+
+  await database.transaction(async (tx) => {
+    await tx.exec(`
+      CREATE TEMP TABLE api_tokens (shadow text) ON COMMIT DROP;
+      CREATE TEMP TABLE users (shadow text) ON COMMIT DROP;
+      CREATE TEMP TABLE company_members (shadow text) ON COMMIT DROP;
+      CREATE TEMP TABLE companies (shadow text) ON COMMIT DROP;
+    `);
+    const shadowApiToken = await tx.query<{ api_token_id: string }>(
+      "SELECT api_token_id FROM public.moarix_find_api_token($1)",
+      [hashApiToken(activeApiCredential.token)],
+    );
+    invariant(
+      shadowApiToken.rows[0]?.api_token_id === activeApiTokenId,
+      "Temporary relation shadowed the API token lookup",
+    );
+  });
+
+  await owner.query("UPDATE api_tokens SET revoked_at = now() WHERE id = $1", [activeApiTokenId]);
+  invariant(
+    await authenticateApiToken(activeApiCredential.token) === null,
+    "Revoked API token remained usable through the controlled lookup",
   );
 
   const expiredSessionId = randomUUID();

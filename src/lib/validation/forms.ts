@@ -3,6 +3,7 @@ import { documentKinds } from "@/lib/services/documents";
 import { documentStatuses } from "@/lib/domain/document-state";
 import { inspectionStatuses } from "@/lib/domain/inspection-state";
 import { serviceCaseStatuses } from "@/lib/domain/service-case-state";
+import { drivingLogStatuses } from "@/lib/domain/driving-log-state";
 import { roles } from "@/lib/security/permissions";
 
 const trimmed = (max: number) => z.string().trim().min(1).max(max);
@@ -330,6 +331,76 @@ export const inspectionTransitionSchema = z.object({
   findings: optionalText(5000),
   actionItems: optionalText(5000),
   nextInspectionDate: z.union([z.iso.date(), z.literal("")]).optional(),
+});
+
+const cliDecimal = z.preprocess(
+  (value) => typeof value === "number" ? String(value) : value,
+  nonNegativeDecimal,
+);
+const cliAmount = z.preprocess(
+  (value) => value === undefined || value === "" ? "0" : typeof value === "number" ? String(value) : value,
+  nonNegativeDecimal,
+);
+
+export const drivingLogSchema = z.object({
+  startDate: z.iso.date(),
+  endDate: z.iso.date(),
+  departure: trimmed(160),
+  destination: trimmed(160),
+  purpose: trimmed(500),
+  vehicleName: trimmed(120),
+  distanceKm: cliDecimal.refine((value) => Number(value) > 0, "운행 거리는 0보다 커야 합니다."),
+  ratePerKm: cliAmount,
+  tollAmount: cliAmount,
+  parkingAmount: cliAmount,
+  fuelAmount: cliAmount,
+  dailyAllowanceAmount: cliAmount,
+  counterpartyId: z.union([z.uuid(), z.literal("")]).optional(),
+  siteId: z.union([z.uuid(), z.literal("")]).optional(),
+  caseId: z.union([z.uuid(), z.literal("")]).optional(),
+  reason: optionalText(1000),
+  notes: optionalText(4000),
+}).superRefine((value, context) => {
+  if (value.endDate < value.startDate) {
+    context.addIssue({
+      code: "custom",
+      path: ["endDate"],
+      message: "종료일은 시작일보다 빠를 수 없습니다.",
+    });
+  }
+});
+
+export const drivingLogUpdateSchema = drivingLogSchema.safeExtend({
+  drivingLogId: z.uuid(),
+  expectedVersion: z.coerce.number().int().positive(),
+});
+
+export const drivingLogTransitionSchema = z.object({
+  drivingLogId: z.uuid(),
+  nextStatus: z.enum(drivingLogStatuses),
+  expectedVersion: z.coerce.number().int().positive(),
+  reason: optionalText(1000),
+}).superRefine((value, context) => {
+  if ((value.nextStatus === "void" || value.nextStatus === "draft") && !value.reason) {
+    context.addIssue({
+      code: "custom",
+      path: ["reason"],
+      message: value.nextStatus === "void" ? "무효 처리 사유를 입력하세요." : "반려 사유를 입력하세요.",
+    });
+  }
+});
+
+export const drivingLogListSchema = z.object({
+  month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "월은 YYYY-MM 형식이어야 합니다.").optional(),
+  status: z.enum(drivingLogStatuses).optional(),
+  counterpartyId: z.uuid().optional(),
+  caseId: z.uuid().optional(),
+  query: z.string().trim().max(200).optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+});
+
+export const drivingLogMonthSchema = z.object({
+  month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "월은 YYYY-MM 형식이어야 합니다."),
 });
 
 export const memberSchema = z.object({

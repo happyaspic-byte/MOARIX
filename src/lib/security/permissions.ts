@@ -14,6 +14,9 @@ export const permissions = [
   "assets:write",
   "service:read",
   "service:write",
+  "trips:read",
+  "trips:write",
+  "trips:approve",
   "reports:read",
   "users:read",
   "users:manage",
@@ -30,6 +33,7 @@ const readOnly = new Set<Permission>([
   "inventory:read",
   "assets:read",
   "service:read",
+  "trips:read",
   "reports:read",
 ]);
 
@@ -44,6 +48,8 @@ const rolePermissions: Record<Role, ReadonlySet<Permission>> = {
     "inventory:write",
     "assets:write",
     "service:write",
+    "trips:write",
+    "trips:approve",
     "users:read",
     "audit:read",
   ]),
@@ -54,6 +60,7 @@ const rolePermissions: Record<Role, ReadonlySet<Permission>> = {
     "inventory:write",
     "assets:write",
     "service:write",
+    "trips:write",
   ]),
   viewer: readOnly,
 };

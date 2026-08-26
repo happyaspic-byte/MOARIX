@@ -14,6 +14,16 @@ describe("role permissions", () => {
     expect(hasPermission("viewer", "assets:write")).toBe(false);
     expect(hasPermission("viewer", "service:read")).toBe(true);
     expect(hasPermission("viewer", "service:write")).toBe(false);
+    expect(hasPermission("viewer", "trips:read")).toBe(true);
+    expect(hasPermission("viewer", "trips:write")).toBe(false);
+    expect(hasPermission("viewer", "trips:approve")).toBe(false);
+  });
+
+  it("uses maker-checker roles for driving log approval", () => {
+    expect(hasPermission("member", "trips:read")).toBe(true);
+    expect(hasPermission("member", "trips:write")).toBe(true);
+    expect(hasPermission("member", "trips:approve")).toBe(false);
+    expect(hasPermission("manager", "trips:approve")).toBe(true);
   });
 
   it("reserves company settings for owners", () => {

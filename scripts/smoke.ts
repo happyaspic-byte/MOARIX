@@ -1,13 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import path from "node:path";
+import { createApiTokenCredential } from "../src/lib/auth/api-token";
 import { authenticate, findSession } from "../src/lib/auth/repository";
-import { getDatabase } from "../src/lib/db/client";
+import { getDatabase, withCompany } from "../src/lib/db/client";
 import { hashSessionToken } from "../src/lib/security/session-token";
 import { createAsset, listAssets } from "../src/lib/services/assets-service";
 import { createMember, listAuditLogs, listMembers, updateMember } from "../src/lib/services/admin";
 import { getDashboard } from "../src/lib/services/dashboard";
-import { createDocument, listDocuments, transitionDocument } from "../src/lib/services/documents";
+import { createDocument, getDocumentDetail, listDocuments, transitionDocument, updateDraftDocument } from "../src/lib/services/documents";
 import { listInventory, postInventoryMovement } from "../src/lib/services/inventory-service";
 import { createCounterparty, createItem, createWarehouse } from "../src/lib/services/master-data";
 import { getStandardReports } from "../src/lib/services/reports";
@@ -103,11 +104,27 @@ async function exerciseDomain() {
     taxRate: "10",
     notes: "런타임 문서 상태 검증",
   });
+  const updatedDocument = await updateDraftDocument(session, {
+    documentId: document.id,
+    kind: "quote",
+    expectedVersion: 1,
+    counterpartyId,
+    itemId,
+    issueDate: today,
+    quantity: "3",
+    unitPrice: "10000",
+    discountRate: "5",
+    taxRate: "10",
+    notes: "런타임 견적 초안 수정 검증",
+  });
+  invariant(updatedDocument.version === 2, "Draft quote optimistic version did not advance");
   await transitionDocument(session, document.id, "submitted");
   await transitionDocument(session, document.id, "approved");
   await transitionDocument(session, document.id, "posted");
   const documents = await listDocuments(session.companyId, "quote");
   invariant(documents.some((row) => row.id === document.id && row.status === "posted"), "Document workflow did not reach posted");
+  const documentDetail = await getDocumentDetail(session.companyId, document.id, "quote");
+  invariant(documentDetail?.document.version === 5 && documentDetail.lines[0]?.quantity === "3.0000", "Updated quote detail was not preserved through workflow");
 
   const assetId = await createAsset(session, {
     counterpartyId,
@@ -200,6 +217,33 @@ async function exerciseDomain() {
   }
   invariant(lastOwnerProtected, "Last active owner protection did not reject deactivation");
 
+  const approverId = await createMember(session, {
+    email: `approver-${suffix.toLowerCase()}@moarix.local`,
+    name: `검증 승인자 ${suffix}`,
+    password: "Smoke-Approver-Password-42!",
+    role: "manager",
+  });
+
+  const ownerApiCredential = createApiTokenCredential();
+  const approverApiCredential = createApiTokenCredential();
+  const writerApiCredential = createApiTokenCredential();
+  await withCompany(session.companyId, async (tx) => {
+    await tx.query(
+      `INSERT INTO api_tokens
+         (id, company_id, user_id, name, token_hash, token_prefix, scopes, expires_at)
+       VALUES
+         ($1, $3, $4, 'Runtime smoke owner CLI', $5, $6, ARRAY['*'], now() + interval '1 hour'),
+         ($2, $3, $7, 'Runtime smoke approver CLI', $8, $9,
+          ARRAY['context:read','trips:read','trips:write','trips:approve'], now() + interval '1 hour'),
+         ($10, $3, $7, 'Runtime smoke writer CLI', $11, $12,
+          ARRAY['context:read','trips:read','trips:write'], now() + interval '1 hour')`,
+      [randomUUID(), randomUUID(), session.companyId, session.userId,
+        ownerApiCredential.tokenHash, ownerApiCredential.tokenPrefix, approverId,
+        approverApiCredential.tokenHash, approverApiCredential.tokenPrefix,
+        randomUUID(), writerApiCredential.tokenHash, writerApiCredential.tokenPrefix],
+    );
+  });
+
   const [dashboard, reports, audit] = await Promise.all([
     getDashboard(session.companyId),
     getStandardReports(session.companyId),
@@ -223,7 +267,14 @@ async function exerciseDomain() {
   );
   invariant(limiter.rows[0]?.attempt_count === 5 && limiter.rows[0].blocked, "Login throttling did not block the fifth failure");
   await database.close();
-  return { token: auth.token, serviceCaseId: service.id };
+  return {
+    token: auth.token,
+    serviceCaseId: service.id,
+    serviceCaseNumber: service.number,
+    ownerApiToken: ownerApiCredential.token,
+    approverApiToken: approverApiCredential.token,
+    writerApiToken: writerApiCredential.token,
+  };
 }
 
 async function waitUntilReady(origin: string, logs: () => string) {
@@ -240,7 +291,134 @@ async function waitUntilReady(origin: string, logs: () => string) {
   throw new Error(`Server did not become ready.\n${logs()}`);
 }
 
-async function exerciseHttp(token: string, serviceCaseId: string) {
+async function runCli(origin: string, token: string, args: string[]) {
+  const cli = spawn(process.execPath, [path.join(process.cwd(), "bin", "moarix.mjs"), ...args], {
+    cwd: process.cwd(),
+    env: { ...process.env, MOARIX_URL: origin, MOARIX_TOKEN: token, NODE_ENV: "test" },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let stdout = "";
+  let stderr = "";
+  cli.stdout.on("data", (chunk) => { stdout += String(chunk); });
+  cli.stderr.on("data", (chunk) => { stderr += String(chunk); });
+  const exitCode = await new Promise<number | null>((resolve) => cli.once("exit", resolve));
+  invariant(exitCode === 0, `CLI failed (${exitCode}): ${stderr}`);
+  return JSON.parse(stdout) as { ok?: boolean; data?: unknown; meta?: Record<string, unknown> };
+}
+
+async function exerciseCommandApi(
+  origin: string,
+  ownerApiToken: string,
+  approverApiToken: string,
+  writerApiToken: string,
+  serviceCaseNumber: string,
+) {
+  const ownerHeaders = { Authorization: `Bearer ${ownerApiToken}`, "Content-Type": "application/json" };
+  const context = await fetch(`${origin}/api/v1/context`, { headers: ownerHeaders });
+  const contextBody = await context.json() as { ok?: boolean; data?: { company?: { id?: string } } };
+  invariant(context.ok && contextBody.ok && contextBody.data?.company?.id, "Command API context lookup failed");
+
+  const capabilities = await fetch(`${origin}/api/v1/capabilities`, { headers: ownerHeaders });
+  const capabilityBody = await capabilities.json() as { ok?: boolean; data?: Array<{ operation?: string }> };
+  invariant(
+    capabilities.ok && capabilityBody.ok
+      && capabilityBody.data?.some((entry) => entry.operation === "trips.transition")
+      && capabilityBody.data?.some((entry) => entry.operation === "assets.networks.update"),
+    "Command API capabilities missed operational commands",
+  );
+
+  const tripInput = {
+    startDate: new Date().toISOString().slice(0, 10),
+    endDate: new Date().toISOString().slice(0, 10),
+    departure: "런타임 검증 본사",
+    destination: "런타임 검증 고객사",
+    purpose: "Stratus 서비스 케이스 현장 점검",
+    vehicleName: "검증 차량",
+    distanceKm: 42.5,
+    ratePerKm: 250,
+    tollAmount: 5000,
+    parkingAmount: 2000,
+    fuelAmount: 0,
+    dailyAllowanceAmount: 10000,
+  };
+  const dryRun = await fetch(`${origin}/api/v1/commands`, {
+    method: "POST",
+    headers: ownerHeaders,
+    body: JSON.stringify({ operation: "trips.create", input: tripInput, dryRun: true }),
+  });
+  const dryRunBody = await dryRun.json() as { ok?: boolean; data?: { applied?: boolean } };
+  invariant(dryRun.ok && dryRunBody.ok && dryRunBody.data?.applied === false, "Command API dry-run failed");
+
+  const idempotencyKey = `runtime-smoke-trip:${randomUUID()}`;
+  const createTrip = () => fetch(`${origin}/api/v1/commands`, {
+    method: "POST",
+    headers: { ...ownerHeaders, "Idempotency-Key": idempotencyKey },
+    body: JSON.stringify({ operation: "trips.create", input: tripInput, dryRun: false }),
+  });
+  const createdResponse = await createTrip();
+  const created = await createdResponse.json() as {
+    ok?: boolean;
+    data?: { id?: string; number?: string; version?: number };
+    meta?: { replayed?: boolean };
+  };
+  invariant(createdResponse.ok && created.ok && created.data?.id && created.data.number && created.data.version === 1, "Command API trip creation failed");
+  const replayResponse = await createTrip();
+  const replay = await replayResponse.json() as typeof created;
+  invariant(replayResponse.ok && replay.ok && replay.meta?.replayed === true && replay.data?.id === created.data.id, "Command API idempotent replay failed");
+
+  const submitResponse = await fetch(`${origin}/api/v1/commands`, {
+    method: "POST",
+    headers: { ...ownerHeaders, "Idempotency-Key": `runtime-smoke-submit:${randomUUID()}` },
+    body: JSON.stringify({ operation: "trips.transition", input: { id: created.data.number, nextStatus: "submitted", expectedVersion: 1 } }),
+  });
+  invariant(submitResponse.ok, `Command API trip submission failed: ${await submitResponse.text()}`);
+
+  const selfApprove = await fetch(`${origin}/api/v1/commands`, {
+    method: "POST",
+    headers: { ...ownerHeaders, "Idempotency-Key": `runtime-smoke-self-approve:${randomUUID()}` },
+    body: JSON.stringify({ operation: "trips.transition", input: { id: created.data.number, nextStatus: "approved", expectedVersion: 2 } }),
+  });
+  invariant(selfApprove.status === 409, "Command API allowed a driving-log creator to self-approve");
+
+  const missingApprovalScope = await fetch(`${origin}/api/v1/commands`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${writerApiToken}`,
+      "Content-Type": "application/json",
+      "Idempotency-Key": `runtime-smoke-missing-approve-scope:${randomUUID()}`,
+    },
+    body: JSON.stringify({ operation: "trips.transition", input: { id: created.data.number, nextStatus: "approved", expectedVersion: 2 } }),
+  });
+  invariant(missingApprovalScope.status === 403, "Write-only API token was allowed to approve a driving log");
+
+  const approvedResponse = await fetch(`${origin}/api/v1/commands`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${approverApiToken}`,
+      "Content-Type": "application/json",
+      "Idempotency-Key": `runtime-smoke-approve:${randomUUID()}`,
+    },
+    body: JSON.stringify({ operation: "trips.transition", input: { id: created.data.number, nextStatus: "approved", expectedVersion: 2 } }),
+  });
+  invariant(approvedResponse.ok, `Independent driving-log approval failed: ${await approvedResponse.text()}`);
+
+  const cliTrip = await runCli(origin, ownerApiToken, ["trip", "get", created.data.number, "--machine"]);
+  invariant(cliTrip.ok && (cliTrip.data as { status?: string })?.status === "approved", "Real CLI → API → DB trip lookup failed");
+  const cliCase = await runCli(origin, ownerApiToken, ["case", "get", serviceCaseNumber, "--machine"]);
+  invariant(cliCase.ok && (cliCase.data as { detail?: { number?: string } })?.detail?.number === serviceCaseNumber, "Real CLI case lookup failed");
+
+  const noToken = await fetch(`${origin}/api/v1/context`);
+  invariant(noToken.status === 401, "Command API accepted an unauthenticated context request");
+}
+
+async function exerciseHttp(
+  token: string,
+  serviceCaseId: string,
+  serviceCaseNumber: string,
+  ownerApiToken: string,
+  approverApiToken: string,
+  writerApiToken: string,
+) {
   const origin = `http://127.0.0.1:${port}`;
   const nextBinary = path.join(process.cwd(), "node_modules", "next", "dist", "bin", "next");
   const child = spawn(process.execPath, [nextBinary, "start", "-H", "127.0.0.1", "-p", String(port)], {
@@ -288,6 +466,7 @@ async function exerciseHttp(token: string, serviceCaseId: string) {
         `${pathname} runtime smoke failed with ${response.status}: ${visibleText.slice(0, 1_500)}`,
       );
     }
+    await exerciseCommandApi(origin, ownerApiToken, approverApiToken, writerApiToken, serviceCaseNumber);
   } finally {
     child.kill("SIGTERM");
     await Promise.race([
@@ -298,5 +477,12 @@ async function exerciseHttp(token: string, serviceCaseId: string) {
 }
 
 const smoke = await exerciseDomain();
-await exerciseHttp(smoke.token, smoke.serviceCaseId);
-console.info("Runtime smoke passed: domain workflows, auth hardening and 14 authenticated pages verified.");
+await exerciseHttp(
+  smoke.token,
+  smoke.serviceCaseId,
+  smoke.serviceCaseNumber,
+  smoke.ownerApiToken,
+  smoke.approverApiToken,
+  smoke.writerApiToken,
+);
+console.info("Runtime smoke passed: domain workflows, auth hardening, command API, real CLI and 14 authenticated pages verified.");

@@ -73,4 +73,38 @@ pg_restore --clean --if-exists --no-owner --dbname=moarix_restore_test moarix.du
 
 ## 키 회전
 
-`SESSION_SECRET`을 바꾸면 기존 세션은 모두 무효화됩니다. 점검 시간을 공지한 뒤 교체하고 재로그인을 안내하세요. DB 비밀번호 회전은 새 자격증명 배포, 연결 확인, 이전 자격증명 폐기 순서로 진행합니다.
+`SESSION_SECRET`을 바꾸면 기존 웹 세션과 이 비밀값으로 해시된 모든 API 토큰이 함께 무효화됩니다. 점검 시간을 공지하고 필요한 AI/CLI 토큰을 새 비밀값으로 재발급한 뒤 애플리케이션을 교체하세요. 사용자는 다시 로그인해야 하며, 기존 API 토큰은 복구할 수 없으므로 새 토큰 배포를 확인한 다음 폐기된 자격증명을 비밀 관리 시스템에서 제거합니다. DB 비밀번호 회전은 새 자격증명 배포, 연결 확인, 이전 자격증명 폐기 순서로 진행합니다.
+
+## AI/CLI API 토큰
+
+API 토큰은 마이그레이션 소유자 연결이 있는 관리 작업에서만 발급·폐기합니다. 앱 컨테이너의 제한 DB 역할은 `api_tokens` 테이블을 직접 읽거나 토큰을 만들 수 없습니다.
+
+```bash
+npm run --silent api-token:issue -- \
+  --company company-slug \
+  --email operator@example.com \
+  --name 'Operations AI' \
+  --scopes 'context:read,assets:read,cases:read,cases:write' \
+  --expires-in-days 30
+
+npm run api-token:revoke -- \
+  --company company-slug \
+  --prefix mxk_XXXXXXXXXXXX
+```
+
+발급 결과의 전체 토큰은 한 번만 출력됩니다. 비밀 관리 시스템으로 즉시 옮기고 AI 프롬프트, 명령 인자, 로그, Git에 남기지 않습니다. 업무별로 읽기/쓰기 토큰을 분리하고 `context:read`와 필요한 리소스 scope만 부여합니다. `quotes:approve`와 `trips:approve`는 일반 쓰기 토큰에서 제외하고 별도 승인 계정·토큰에만 부여합니다. 리소스 `:*`는 승인 권한도 포함합니다. 만료일과 `last_used_at`을 정기 검토하고 작업 종료·담당자 변경·의심 활동 시 즉시 폐기합니다.
+
+Compose 배포에서는 제한 앱 컨테이너가 아닌 일회성 관리자 이미지에서 실행합니다. `migrate` 서비스는 DB 소유자 연결과 토큰 해시에 필요한 동일한 `SESSION_SECRET`을 사용합니다.
+
+```bash
+docker compose run --rm migrate npm run --silent api-token:issue -- \
+  --company company-slug \
+  --email operator@example.com \
+  --name 'Operations AI' \
+  --scopes 'context:read,assets:read,cases:read,cases:write' \
+  --expires-in-days 30
+
+docker compose run --rm migrate npm run --silent api-token:revoke -- \
+  --company company-slug \
+  --prefix mxk_XXXXXXXXXXXX
+```

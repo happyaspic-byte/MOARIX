@@ -79,6 +79,21 @@ try {
     );
     for (const row of sessionColumnRevokes.rows) await database.exec(row.sql);
 
+    const apiTokenColumnRevokes = await database.query(
+      `SELECT format(
+         'REVOKE %s (%I) ON TABLE public.api_tokens FROM %I',
+         privilege_type,
+         column_name,
+         $1::text
+       ) AS sql
+       FROM information_schema.column_privileges
+       WHERE table_schema = 'public'
+         AND table_name = 'api_tokens'
+         AND grantee = $1::text`,
+      [appUser],
+    );
+    for (const row of apiTokenColumnRevokes.rows) await database.exec(row.sql);
+
     const tenantTables = [
       "counterparties", "items", "warehouses", "document_counters", "documents",
       "document_lines", "inventory_balances", "inventory_movements", "assets",
@@ -86,7 +101,7 @@ try {
       "maintenance_inspections", "service_case_activities", "service_case_attachments",
       "asset_nodes", "asset_network_interfaces", "asset_virtual_machines",
       "asset_support_contracts", "asset_licenses", "inspection_check_items",
-      "service_case_watchers",
+      "service_case_watchers", "driving_logs",
     ];
     const tenantGrants = await database.query(
       `SELECT format('GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.%I TO %I', table_name, $1::text) AS sql
@@ -108,7 +123,8 @@ try {
          format('GRANT EXECUTE ON FUNCTION public.moarix_create_session(uuid, uuid, uuid, text, timestamptz, text, text, text) TO %I', $1::text),
          format('GRANT EXECUTE ON FUNCTION public.moarix_touch_session(uuid) TO %I', $1::text),
          format('GRANT EXECUTE ON FUNCTION public.moarix_revoke_session(text) TO %I', $1::text),
-         format('GRANT EXECUTE ON FUNCTION public.moarix_revoke_user_sessions(uuid, uuid) TO %I', $1::text)
+         format('GRANT EXECUTE ON FUNCTION public.moarix_revoke_user_sessions(uuid, uuid) TO %I', $1::text),
+         format('GRANT EXECUTE ON FUNCTION public.moarix_find_api_token(text) TO %I', $1::text)
        ] AS statements`,
       [appUser],
     );
