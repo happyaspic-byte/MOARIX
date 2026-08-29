@@ -72,7 +72,7 @@ import {
   assetVmUpdateSchema,
   counterpartySchema,
   customerSiteSchema,
-  documentSchema,
+  rawDocumentSchema,
   drivingLogListSchema,
   drivingLogMonthSchema,
   drivingLogSchema,
@@ -136,10 +136,20 @@ function omitCommandId<T extends { id: string }>(input: T): Omit<T, "id"> {
   return rest;
 }
 
-const quoteCreateSchema = documentSchema.omit({ kind: true }).strict();
-const quoteUpdateSchema = quoteCreateSchema.extend({
+const quoteCreateSchema = rawDocumentSchema.omit({ kind: true }).superRefine((value, context) => {
+  if (value.lines && value.lines.length > 0) return;
+  if (!value.itemId) context.addIssue({ code: "custom", path: ["itemId"], message: "품목을 선택하세요." });
+  if (!value.quantity) context.addIssue({ code: "custom", path: ["quantity"], message: "수량을 입력하세요." });
+  if (value.unitPrice === undefined) context.addIssue({ code: "custom", path: ["unitPrice"], message: "단가를 입력하세요." });
+});
+const quoteUpdateSchema = rawDocumentSchema.omit({ kind: true }).extend({
   id: referenceSchema,
   expectedVersion: z.number().int().positive(),
+  itemId: z.uuid(),
+  quantity: z.string().trim().min(1),
+  unitPrice: z.string().trim().min(1),
+  discountRate: z.string().trim().min(1),
+  taxRate: z.string().trim().min(1),
 }).strict();
 const quoteTransitionSchema = z.object({
   id: referenceSchema,
@@ -197,7 +207,7 @@ async function resolveInspection(companyId: string, reference: string) {
 }
 
 async function resolveQuote(companyId: string, reference: string) {
-  const rows = await listDocuments(companyId, "quote");
+  const { rows } = await listDocuments(companyId, "quote");
   return resolveExactReference(rows, reference, ["id", "number"], "견적서");
 }
 
@@ -334,7 +344,7 @@ const commands: CommandDefinition[] = [
   defineCommand({ operation: "inspections.transition", summary: "점검 상태·체크 결과·후속 일정을 반영합니다.", mode: "write", permission: "service:write", scope: "inspections:write", inputSchema: inspectionTransitionCommandSchema, execute: async (actor, input) => { const inspection = await resolveInspection(actor.companyId, input.id); const transition = omitCommandId(input); await transitionInspection(actor, { ...transition, inspectionId: inspection.id }); return { id: inspection.id, status: input.nextStatus }; } }),
   defineCommand({
     operation: "quotes.list", summary: "견적서를 조회합니다.", mode: "read", permission: "documents:read", scope: "quotes:read", inputSchema: listSchema,
-    execute: async (actor, input) => filterAndLimit(await listDocuments(actor.companyId, "quote"), input, ["number", "counterparty_name"]),
+    execute: async (actor, input) => filterAndLimit((await listDocuments(actor.companyId, "quote")).rows, input, ["number", "counterparty_name"]),
   }),
   defineCommand({ operation: "quotes.get", summary: "견적서 헤더·라인·버전을 조회합니다.", mode: "read", permission: "documents:read", scope: "quotes:read", inputSchema: getSchema, execute: async (actor, input) => { const quote = await resolveQuote(actor.companyId, input.id); const detail = await getDocumentDetail(actor.companyId, quote.id, "quote"); if (!detail) throw new ApiError("NOT_FOUND", 404, "견적서를 찾을 수 없습니다."); return detail; } }),
   defineCommand({ operation: "quotes.create", summary: "단일 품목 견적 초안을 생성합니다.", mode: "write", permission: "documents:write", scope: "quotes:write", inputSchema: quoteCreateSchema, execute: async (actor, input) => createDocument(actor, { ...input, kind: "quote" }) }),

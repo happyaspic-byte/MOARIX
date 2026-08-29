@@ -67,17 +67,49 @@ export const warehouseSchema = z.object({
   location: optionalText(200),
 });
 
-export const documentSchema = z.object({
-  kind: z.enum(documentKinds),
-  counterpartyId: z.uuid(),
+const documentLineSchema = z.object({
   itemId: z.uuid(),
-  issueDate: z.iso.date(),
-  dueDate: z.union([z.iso.date(), z.literal("")]).optional(),
   quantity: nonNegativeDecimal.refine((value) => Number(value) > 0, "수량은 0보다 커야 합니다."),
   unitPrice: nonNegativeDecimal,
   discountRate: nonNegativeDecimal.refine((value) => Number(value) <= 100, "할인율은 100 이하이어야 합니다."),
   taxRate: nonNegativeDecimal.refine((value) => Number(value) <= 100, "세율은 100 이하이어야 합니다."),
+});
+
+export const rawDocumentSchema = z.object({
+  kind: z.enum(documentKinds),
+  counterpartyId: z.uuid(),
+  itemId: z.uuid().optional(),
+  issueDate: z.iso.date(),
+  dueDate: z.union([z.iso.date(), z.literal("")]).optional(),
+  quantity: nonNegativeDecimal.refine((value) => Number(value) > 0, "수량은 0보다 커야 합니다.").optional(),
+  unitPrice: nonNegativeDecimal.optional(),
+  discountRate: nonNegativeDecimal.refine((value) => Number(value) <= 100, "할인율은 100 이하이어야 합니다.").optional(),
+  taxRate: nonNegativeDecimal.refine((value) => Number(value) <= 100, "세율은 100 이하이어야 합니다.").optional(),
   notes: optionalText(2000),
+  lines: z.array(documentLineSchema).max(50).optional(),
+});
+
+export const documentSchema = rawDocumentSchema.superRefine((value, context) => {
+  if (value.lines && value.lines.length > 0) return;
+  if (!value.itemId) context.addIssue({ code: "custom", path: ["itemId"], message: "품목을 선택하세요." });
+  if (!value.quantity) context.addIssue({ code: "custom", path: ["quantity"], message: "수량을 입력하세요." });
+  if (value.unitPrice === undefined) context.addIssue({ code: "custom", path: ["unitPrice"], message: "단가를 입력하세요." });
+});
+
+export const documentConvertSchema = z.object({
+  documentId: z.uuid(),
+  kind: z.enum(documentKinds),
+});
+
+export const settlementSchema = z.object({
+  counterpartyId: z.uuid(),
+  direction: z.enum(["receipt", "payment"]),
+  amount: nonNegativeDecimal.refine((value) => Number(value) > 0, "금액은 0보다 커야 합니다."),
+  settledOn: z.iso.date(),
+  method: z.enum(["bank", "card", "cash", "offset", "other"]),
+  reference: optionalText(80),
+  notes: optionalText(2000),
+  documentIds: z.array(z.uuid()).min(1, "배부할 문서를 선택하세요."),
 });
 
 export const documentTransitionSchema = z.object({
@@ -190,7 +222,7 @@ export const assetVmUpdateSchema = assetVmSchema.extend({ virtualMachineId: z.uu
 
 export const assetContractSchema = z.object({
   assetId: z.uuid(),
-  scope: z.enum(["customer_support", "vendor_support"]),
+  scope: z.enum(["customer_support", "partner_support", "vendor_support"]),
   status: z.enum(["active", "pending_renewal", "not_contracted", "expired"]),
   contractNumber: optionalText(120),
   providerName: trimmed(160),

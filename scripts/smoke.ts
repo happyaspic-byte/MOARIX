@@ -122,7 +122,7 @@ async function exerciseDomain() {
   await transitionDocument(session, document.id, "approved");
   await transitionDocument(session, document.id, "posted");
   const documents = await listDocuments(session.companyId, "quote");
-  invariant(documents.some((row) => row.id === document.id && row.status === "posted"), "Document workflow did not reach posted");
+  invariant(documents.rows.some((row) => row.id === document.id && row.status === "posted"), "Document workflow did not reach posted");
   const documentDetail = await getDocumentDetail(session.companyId, document.id, "quote");
   invariant(documentDetail?.document.version === 5 && documentDetail.lines[0]?.quantity === "3.0000", "Updated quote detail was not preserved through workflow");
 
