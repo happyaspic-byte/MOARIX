@@ -5,7 +5,7 @@ import { FormMessage, initialFormState } from "@/components/form-message";
 import { SubmitButton } from "@/components/submit-button";
 import type { MemberRow } from "@/lib/services/admin";
 import type { Role } from "@/lib/security/permissions";
-import { createMemberAction, updateMemberAction } from "./actions";
+import { createMemberAction, revokeSessionsAction, updateMemberAction } from "./actions";
 
 const roleLabels: Record<Role, string> = { owner: "소유자", admin: "관리자", manager: "매니저", member: "실무자", viewer: "조회자" };
 const editableRoles: Role[] = ["owner", "admin", "manager", "member", "viewer"];
@@ -24,12 +24,19 @@ export function MemberForm({ canAssignOwner }: { canAssignOwner: boolean }) {
 
 export function MemberSettingsForm({ member, canAssignOwner, disabled }: { member: MemberRow; canAssignOwner: boolean; disabled: boolean }) {
   const [state, action] = useActionState(updateMemberAction, initialFormState);
+  const [revokeState, revokeAction] = useActionState(revokeSessionsAction, initialFormState);
   if (disabled) return <span className="helper-text">소유자만 변경 가능</span>;
-  return <form action={action} className="inline-admin-form">
-    <input type="hidden" name="userId" value={member.user_id} />
-    <select aria-label={`${member.name} 역할`} name="role" defaultValue={member.role}>{editableRoles.filter((role) => canAssignOwner || role !== "owner").map((role) => <option value={role} key={role}>{roleLabels[role]}</option>)}</select>
-    <select aria-label={`${member.name} 상태`} name="isActive" defaultValue={String(member.is_active)}><option value="true">활성</option><option value="false">비활성</option></select>
-    <SubmitButton className="button small">저장</SubmitButton>
-    <FormMessage state={state} />
-  </form>;
+  return <div className="inline-admin-form">
+    <form action={action} className="inline-admin-form">
+      <input type="hidden" name="userId" value={member.user_id} />
+      <select aria-label={`${member.name} 역할`} name="role" defaultValue={member.role}>{editableRoles.filter((role) => canAssignOwner || role !== "owner").map((role) => <option value={role} key={role}>{roleLabels[role]}</option>)}</select>
+      <select aria-label={`${member.name} 상태`} name="isActive" defaultValue={String(member.is_active)}><option value="true">활성</option><option value="false">비활성</option></select>
+      <SubmitButton className="button small">저장</SubmitButton>
+    </form>
+    <form action={revokeAction} className="inline-admin-form">
+      <input type="hidden" name="userId" value={member.user_id} />
+      <SubmitButton className="button small danger">세션 종료</SubmitButton>
+    </form>
+    <FormMessage state={state.status !== "idle" ? state : revokeState} />
+  </div>;
 }

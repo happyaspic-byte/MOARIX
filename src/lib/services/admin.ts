@@ -23,6 +23,50 @@ export type AuditRow = {
   summary: string;
 };
 
+export type SessionRow = {
+  session_id: string;
+  user_id: string;
+  user_name: string;
+  email: string;
+  last_seen_at: string;
+  expires_at: string;
+  user_agent: string | null;
+};
+
+export async function listCompanySessions(companyId: string) {
+  return withCompany(companyId, async (tx) => {
+    const result = await tx.query<SessionRow>(
+      `SELECT session_id::text, user_id::text, user_name, email,
+              last_seen_at::text, expires_at::text, user_agent
+       FROM public.moarix_list_company_sessions($1)`,
+      [companyId],
+    );
+    return result.rows;
+  });
+}
+
+export async function revokeUserSessions(session: SessionContext, userId: string) {
+  const database = await getDatabase();
+  await database.transaction(async (tx) => {
+    await tx.query("SELECT set_config('app.current_company_id', $1, true)", [session.companyId]);
+    const member = await tx.query<{ name: string }>(
+      `SELECT u.name FROM company_members m JOIN users u ON u.id = m.user_id
+       WHERE m.company_id = $1 AND m.user_id = $2`,
+      [session.companyId, userId],
+    );
+    if (!member.rows[0]) throw new Error("Company member not found");
+    await tx.query("SELECT public.moarix_revoke_user_sessions($1, $2)", [session.companyId, userId]);
+    await writeAudit(tx, {
+      companyId: session.companyId,
+      actorUserId: session.userId,
+      action: "session.revoked",
+      entityType: "session",
+      entityId: userId,
+      summary: `${member.rows[0].name} 세션 강제 종료`,
+    });
+  });
+}
+
 export async function listMembers(companyId: string) {
   return withCompany(companyId, async (tx) => {
     const result = await tx.query<MemberRow>(

@@ -47,9 +47,13 @@ const groups: ReadonlyArray<{
     items: [
       { href: "/documents/quote", label: "견적", icon: FileText, permission: "documents:read" },
       { href: "/documents/sales_order", label: "수주", icon: ShoppingCart, permission: "documents:read" },
+      { href: "/documents/shipment", label: "출고", icon: Truck, permission: "documents:read" },
       { href: "/documents/purchase_order", label: "발주", icon: Truck, permission: "documents:read" },
+      { href: "/documents/receipt", label: "입고", icon: PackageOpen, permission: "documents:read" },
       { href: "/documents/invoice", label: "매출 청구", icon: ReceiptText, permission: "documents:read" },
       { href: "/documents/bill", label: "매입 청구", icon: FileCheck2, permission: "documents:read" },
+      { href: "/settlements", label: "미수·미지급", icon: ReceiptText, permission: "documents:read" },
+      { href: "/mail", label: "메일 큐", icon: FileCheck2, permission: "documents:read" },
     ],
   },
   {

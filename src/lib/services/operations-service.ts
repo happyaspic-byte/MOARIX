@@ -100,6 +100,8 @@ export type InspectionRow = {
   findings: string | null;
   action_items: string | null;
   next_inspection_date: string | null;
+  customer_confirmed_by: string | null;
+  customer_confirmed_at: string | null;
 };
 
 export type InspectionInput = {
@@ -132,7 +134,8 @@ export function listInspections(companyId: string) {
               i.status, i.scheduled_date::text, u.name AS engineer_name,
               i.system_health, i.protection_status, i.sync_status, i.service_status,
               i.cpu_percent::text, i.memory_percent::text, i.disk_percent::text,
-              i.findings, i.action_items, i.next_inspection_date::text
+              i.findings, i.action_items, i.next_inspection_date::text,
+              i.customer_confirmed_by, i.customer_confirmed_at::text
        FROM maintenance_inspections i
        JOIN assets a ON a.company_id = i.company_id AND a.id = i.asset_id
        JOIN customer_sites s ON s.company_id = i.company_id AND s.id = i.site_id
@@ -335,5 +338,91 @@ export function transitionInspection(session: SessionContext, input: InspectionR
       },
     });
     return { assetId: current.asset_id };
+  });
+}
+
+export async function getInspectionReportData(companyId: string, inspectionId: string) {
+  return withCompany(companyId, async (tx) => {
+    const inspection = await tx.query<{
+      id: string;
+      number: string;
+      customer_name: string;
+      site_name: string;
+      asset_tag: string;
+      product_name: string;
+      inspection_type: string;
+      scheduled_date: string;
+      completed_at: string | null;
+      engineer_name: string;
+      system_health: string;
+      protection_status: string;
+      sync_status: string;
+      service_status: string;
+      cpu_percent: string | null;
+      memory_percent: string | null;
+      disk_percent: string | null;
+      findings: string | null;
+      action_items: string | null;
+      customer_confirmed_by: string | null;
+      customer_confirmed_at: string | null;
+    }>(
+      `SELECT i.id, i.number, c.name AS customer_name, s.name AS site_name,
+              a.asset_tag, a.product_name, i.inspection_type, i.scheduled_date::text,
+              i.completed_at::text, u.name AS engineer_name, i.system_health,
+              i.protection_status, i.sync_status, i.service_status,
+              i.cpu_percent::text, i.memory_percent::text, i.disk_percent::text,
+              i.findings, i.action_items, i.customer_confirmed_by, i.customer_confirmed_at::text
+       FROM maintenance_inspections i
+       JOIN assets a ON a.company_id = i.company_id AND a.id = i.asset_id
+       JOIN customer_sites s ON s.company_id = i.company_id AND s.id = i.site_id
+       JOIN counterparties c ON c.company_id = a.company_id AND c.id = a.counterparty_id
+       JOIN users u ON u.id = i.engineer_id
+       WHERE i.id = $1`,
+      [inspectionId],
+    );
+    const row = inspection.rows[0];
+    if (!row) throw new Error("Inspection not found");
+    const checks = await tx.query<{ category: string; label: string; result: string; observed_value: string | null }>(
+      `SELECT category, label, result, observed_value
+       FROM inspection_check_items
+       WHERE inspection_id = $1
+       ORDER BY position`,
+      [inspectionId],
+    );
+    return { ...row, checks: checks.rows };
+  });
+}
+
+export function confirmInspectionCustomer(
+  session: SessionContext,
+  input: { inspectionId: string; confirmedBy: string },
+) {
+  return withCompany(session.companyId, async (tx) => {
+    const current = await tx.query<{ id: string; number: string; status: InspectionStatus }>(
+      "SELECT id, number, status FROM maintenance_inspections WHERE id = $1 FOR UPDATE",
+      [input.inspectionId],
+    );
+    const inspection = current.rows[0];
+    if (!inspection) throw new Error("Inspection not found");
+    if (inspection.status !== "completed" && inspection.status !== "issue_found") {
+      throw new Error("점검이 완료된 뒤에만 고객 확인할 수 있습니다.");
+    }
+    const confirmedBy = input.confirmedBy.trim();
+    if (!confirmedBy) throw new Error("고객 확인자 이름을 입력하세요.");
+    await tx.query(
+      `UPDATE maintenance_inspections
+       SET customer_confirmed_by = $2, customer_confirmed_at = now()
+       WHERE id = $1`,
+      [input.inspectionId, confirmedBy],
+    );
+    await writeAudit(tx, {
+      companyId: session.companyId,
+      actorUserId: session.userId,
+      action: "inspection.customer_confirmed",
+      entityType: "maintenance_inspection",
+      entityId: input.inspectionId,
+      summary: `${inspection.number} 고객 확인 (${confirmedBy})`,
+      afterData: { confirmedBy },
+    });
   });
 }
