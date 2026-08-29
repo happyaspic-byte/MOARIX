@@ -140,7 +140,7 @@ export function AssetContractForm({ assetId, members }: { assetId: string; membe
   const formRef = useCloseOnSuccess(state.status);
   return <form ref={formRef} action={action} className="form-grid case-entry-form">
     <input type="hidden" name="assetId" value={assetId} />
-    <label><span>계약 구분 *</span><select name="scope" defaultValue="customer_support"><option value="customer_support">고객 ↔ 우리 회사</option><option value="vendor_support">우리 회사 ↔ Stratus/Penguin</option></select></label>
+    <label><span>계약 구분 *</span><select name="scope" defaultValue="customer_support"><option value="customer_support">1단계 · 고객 ↔ 우리 회사</option><option value="partner_support">2단계 · 우리 회사 ↔ 파트너</option><option value="vendor_support">3단계 · 파트너/우리 회사 ↔ Stratus</option></select></label>
     <label><span>계약 상태 *</span><select name="status" defaultValue="active"><option value="active">계약중</option><option value="pending_renewal">갱신협의</option><option value="not_contracted">미계약</option><option value="expired">만료</option></select></label>
     <label><span>계약번호</span><input name="contractNumber" maxLength={120} placeholder="합성 또는 내부 참조번호" /></label>
     <label><span>지원 제공자 *</span><input name="providerName" maxLength={160} required placeholder="우리 회사 또는 Demo Vendor" /></label>
@@ -170,7 +170,7 @@ export function AssetLicenseForm({ assetId, contracts, initial }: { assetId: str
     <label><span>버전</span><input name="version" maxLength={120} defaultValue={initial?.version ?? ""} /></label>
     <label><span>수량 *</span><input name="quantity" type="number" min="1" max="1000000" defaultValue={initial?.quantity ?? 1} required /></label>
     <label><span>상태 *</span><select name="status" defaultValue={initial?.status ?? "active"}><option value="active">활성</option><option value="suspended">중지</option><option value="retired">종료</option></select></label>
-    <label><span>연결 지원 계약</span><select name="supportContractId" defaultValue={initial?.support_contract_id ?? ""}><option value="">미연결</option>{contracts.filter((contract) => contract.is_current || contract.id === initial?.support_contract_id).map((contract) => <option key={contract.id} value={contract.id}>{contract.scope === "vendor_support" ? "벤더" : "고객"} · {contract.contract_number ?? contract.provider_name}</option>)}</select></label>
+    <label><span>연결 지원 계약</span><select name="supportContractId" defaultValue={initial?.support_contract_id ?? ""}><option value="">미연결</option>{contracts.filter((contract) => contract.is_current || contract.id === initial?.support_contract_id).map((contract) => <option key={contract.id} value={contract.id}>{contract.scope === "vendor_support" ? "Stratus" : contract.scope === "partner_support" ? "파트너" : "고객"} · {contract.contract_number ?? contract.provider_name}</option>)}</select></label>
     <label><span>발급일</span><input name="issuedOn" type="date" defaultValue={initial?.issued_on ?? ""} /></label><label><span>만료일</span><input name="expiresOn" type="date" defaultValue={initial?.expires_on ?? ""} /></label>
     <label className="full"><span>비고</span><textarea name="notes" maxLength={2000} defaultValue={initial?.notes ?? ""} /></label>
     <div className="full"><FormMessage state={state} /></div><div className="form-actions"><SubmitButton>{initial ? "라이선스 저장" : "라이선스 등록"}</SubmitButton></div>
