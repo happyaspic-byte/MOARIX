@@ -4,7 +4,7 @@ import { useActionState } from "react";
 import { FormMessage, initialFormState } from "@/components/form-message";
 import { SubmitButton } from "@/components/submit-button";
 import type { InspectionStatus } from "@/lib/domain/inspection-state";
-import { transitionInspectionAction } from "./actions";
+import { confirmInspectionCustomerAction, transitionInspectionAction } from "./actions";
 
 export function QuickInspectionAction({ inspectionId, nextStatus, label }: { inspectionId: string; nextStatus: InspectionStatus; label: string }) {
   const [state, action] = useActionState(transitionInspectionAction, initialFormState);
@@ -28,5 +28,15 @@ export function InspectionResultForm({ inspectionId }: { inspectionId: string })
     <label className="full"><span>조치 내용·후속 작업</span><textarea name="actionItems" maxLength={5000} /></label>
     <div className="full"><FormMessage state={state} /></div>
     <div className="form-actions"><SubmitButton>점검 결과 저장</SubmitButton></div>
+  </form>;
+}
+
+export function InspectionCustomerConfirmForm({ inspectionId }: { inspectionId: string }) {
+  const [state, action] = useActionState(confirmInspectionCustomerAction, initialFormState);
+  return <form action={action} className="inline-action-form">
+    <input type="hidden" name="inspectionId" value={inspectionId} />
+    <input name="confirmedBy" maxLength={80} placeholder="고객 확인자" required />
+    <SubmitButton className="button small">고객 확인</SubmitButton>
+    <FormMessage state={state} />
   </form>;
 }
