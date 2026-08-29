@@ -206,12 +206,12 @@ export type AssetVmRow = {
   last_verified_at: string | null; notes: string | null;
 };
 export type AssetContractRow = {
-  id: string; scope: "customer_support" | "vendor_support"; status: ContractStatus;
+  id: string; scope: "customer_support" | "partner_support" | "vendor_support"; status: ContractStatus;
   contract_number: string | null; provider_name: string; recipient_name: string | null;
   intermediary_name: string | null; support_level: string | null; service_method: "remote" | "visit" | "hybrid";
   starts_on: string | null; ends_on: string | null; coverage_summary: string | null;
   exclusions: string | null; renewal_owner_name: string | null; is_current: boolean;
-  notes: string | null; created_at: string;
+  revision_number: number; notes: string | null; created_at: string;
 };
 export type AssetLicenseRow = {
   id: string; product_name: string; license_type: "perpetual" | "subscription" | "oem" | "trial" | "other";
@@ -265,9 +265,10 @@ export async function getAssetWorkspace(companyId: string, assetId: string) {
         contract.provider_name, contract.recipient_name, contract.intermediary_name,
         contract.support_level, contract.service_method, contract.starts_on::text, contract.ends_on::text,
         contract.coverage_summary, contract.exclusions, owner.name AS renewal_owner_name,
-        contract.is_current, contract.notes, contract.created_at::text
+        contract.is_current, COALESCE(contract.revision_number, 1) AS revision_number,
+        contract.notes, contract.created_at::text
         FROM asset_support_contracts contract LEFT JOIN users owner ON owner.id = contract.renewal_owner_id
-        WHERE contract.asset_id = $1 ORDER BY contract.is_current DESC, contract.scope, contract.created_at DESC`, [assetId]),
+        WHERE contract.asset_id = $1 ORDER BY contract.is_current DESC, contract.revision_number DESC, contract.scope, contract.created_at DESC`, [assetId]),
       tx.query<AssetLicenseRow>(`SELECT license.id, license.product_name, license.license_type,
         license.entitlement_reference, license.license_key_hint, license.version,
         license.quantity, license.status, license.issued_on::text, license.expires_on::text,
@@ -528,20 +529,26 @@ export function createAssetSupportContract(session: SessionContext, input: Asset
       const owner = await tx.query("SELECT user_id FROM company_members WHERE user_id = $1 AND is_active = true", [input.renewalOwnerId]);
       if (!owner.rows[0]) throw new Error("Renewal owner is not an active company member");
     }
+    const revisions = await tx.query<{ revision_number: number }>(
+      "SELECT revision_number FROM asset_support_contracts WHERE asset_id = $1 AND scope = $2 ORDER BY revision_number DESC LIMIT 1",
+      [input.assetId, input.scope],
+    );
+    const revisionNumber = (revisions.rows[0]?.revision_number ?? 0) + 1;
     await tx.query("UPDATE asset_support_contracts SET is_current = false WHERE asset_id = $1 AND scope = $2 AND is_current = true", [input.assetId, input.scope]);
     await tx.query(`INSERT INTO asset_support_contracts
       (id, company_id, asset_id, scope, status, contract_number, provider_name, recipient_name,
        intermediary_name, support_level, service_method, starts_on, ends_on, coverage_summary,
-       exclusions, renewal_owner_id, notes, created_by)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
-    [id, session.companyId, input.assetId, input.scope, input.status, input.contractNumber || null, input.providerName, input.recipientName || null, input.intermediaryName || null, input.supportLevel || null, input.serviceMethod, input.startsOn || null, input.endsOn || null, input.coverageSummary || null, input.exclusions || null, input.renewalOwnerId || null, input.notes || null, session.userId]);
+       exclusions, renewal_owner_id, notes, created_by, revision_number)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`,
+    [id, session.companyId, input.assetId, input.scope, input.status, input.contractNumber || null, input.providerName, input.recipientName || null, input.intermediaryName || null, input.supportLevel || null, input.serviceMethod, input.startsOn || null, input.endsOn || null, input.coverageSummary || null, input.exclusions || null, input.renewalOwnerId || null, input.notes || null, session.userId, revisionNumber]);
     if (input.scope === "customer_support") {
       await tx.query(`UPDATE assets SET contract_status = $2, contract_number = $3,
         channel_partner = $4, support_provider = $5, support_level = $6,
         service_method = $7, support_started_at = $8, support_until = $9
         WHERE id = $1`, [input.assetId, input.status, input.contractNumber || null, input.intermediaryName || null, input.providerName, input.supportLevel || null, input.serviceMethod, input.startsOn || null, input.endsOn || null]);
     }
-    await auditAssetChild(tx, session, { action: "asset_contract.revised", entityType: "asset_support_contract", entityId: id, summary: `${asset.asset_tag} ${input.scope === "customer_support" ? "고객" : "벤더"} 지원 계약 개정`, afterData: { assetId: input.assetId, scope: input.scope, status: input.status, contractNumber: input.contractNumber, endsOn: input.endsOn } });
+    const scopeLabel = input.scope === "customer_support" ? "고객" : input.scope === "partner_support" ? "파트너" : "Stratus";
+    await auditAssetChild(tx, session, { action: "asset_contract.revised", entityType: "asset_support_contract", entityId: id, summary: `${asset.asset_tag} ${scopeLabel} 지원 계약 ${revisionNumber}차 개정`, afterData: { assetId: input.assetId, scope: input.scope, revisionNumber, status: input.status, contractNumber: input.contractNumber, endsOn: input.endsOn } });
     return id;
   });
 }

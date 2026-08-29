@@ -19,6 +19,7 @@ import { listAssets } from "@/lib/services/assets-service";
 import { listCounterparties } from "@/lib/services/master-data";
 import { listCustomerSites } from "@/lib/services/operations-service";
 import { AssetForm } from "./asset-form";
+import { AssetImportPanel } from "./asset-import-panel";
 
 export const metadata: Metadata = { title: "Stratus 자산 운영" };
 export const dynamic = "force-dynamic";
@@ -149,7 +150,10 @@ export default async function AssetsPage({ searchParams }: { searchParams: Promi
       eyebrow="STRATUS ASSET OPERATIONS"
       title="Stratus 자산 운영"
       description="고객·사업장별 Stratus 구성, 고객 지원 의무, 벤더 백계약, 라이선스, 점검과 케이스를 한 흐름에서 관리합니다."
-      actions={<>{hasPermission(session.role, "assets:write") ? <details className="create-panel"><summary className="button primary"><Plus size={17} />자산 등록</summary><div className="create-drawer"><div className="drawer-head"><div><h2>고객 자산 등록</h2><p>기본 자산을 만든 뒤 상세 화면에서 Node, 네트워크, VM과 계약 체인을 완성합니다.</p></div><DrawerCloseButton /></div><AssetForm counterparties={activeCustomers} sites={sites} /></div></details> : null}<Link className="button" href="/sites">사업장 관리</Link></>}
+      actions={<>{hasPermission(session.role, "assets:write") ? <>
+        <details className="create-panel"><summary className="button primary"><Plus size={17} />자산 등록</summary><div className="create-drawer"><div className="drawer-head"><div><h2>고객 자산 등록</h2><p>기본 자산을 만든 뒤 상세 화면에서 Node, 네트워크, VM과 계약 체인을 완성합니다.</p></div><DrawerCloseButton /></div><AssetForm counterparties={activeCustomers} sites={sites} /></div></details>
+        <details className="create-panel"><summary className="button">CSV 가져오기</summary><div className="create-drawer"><div className="drawer-head"><div><h2>자산·계약 일괄 가져오기</h2><p>UTF-8 CSV로 자산과 지원 계약을 등록하거나 기존 자산태그를 갱신합니다. Excel은 CSV UTF-8로 저장하세요.</p></div><DrawerCloseButton /></div><AssetImportPanel existingAssetKeys={assets.flatMap((asset) => [asset.asset_tag, asset.vendor_asset_id].filter((value): value is string => Boolean(value)))} /></div></details>
+      </> : null}<a className="button" href="/api/v1/assets/export">CSV 내보내기</a><Link className="button" href="/sites">사업장 관리</Link></>}
     />
 
     <section className="metric-grid" aria-label="자산 운영 지표">
