@@ -8,6 +8,10 @@ import { roles } from "@/lib/security/permissions";
 
 const trimmed = (max: number) => z.string().trim().min(1).max(max);
 const optionalText = (max: number) => z.string().trim().max(max).optional().or(z.literal(""));
+const optionalUuid = z.preprocess(
+  (value) => value === "" || value === undefined ? undefined : value,
+  z.uuid().optional(),
+);
 const optionalHttpsUrl = z.string().trim().max(2048).refine((value) => {
   if (!value) return true;
   try {
@@ -78,6 +82,7 @@ const documentLineSchema = z.object({
 export const rawDocumentSchema = z.object({
   kind: z.enum(documentKinds),
   counterpartyId: z.uuid(),
+  warehouseId: optionalUuid,
   itemId: z.uuid().optional(),
   issueDate: z.iso.date(),
   dueDate: z.union([z.iso.date(), z.literal("")]).optional(),
@@ -89,12 +94,22 @@ export const rawDocumentSchema = z.object({
   lines: z.array(documentLineSchema).max(50).optional(),
 });
 
-export const documentSchema = rawDocumentSchema.superRefine((value, context) => {
+function validateDocumentLines(
+  value: z.output<typeof rawDocumentSchema>,
+  context: z.RefinementCtx,
+) {
   if (value.lines && value.lines.length > 0) return;
   if (!value.itemId) context.addIssue({ code: "custom", path: ["itemId"], message: "품목을 선택하세요." });
   if (!value.quantity) context.addIssue({ code: "custom", path: ["quantity"], message: "수량을 입력하세요." });
   if (value.unitPrice === undefined) context.addIssue({ code: "custom", path: ["unitPrice"], message: "단가를 입력하세요." });
-});
+}
+
+export const documentSchema = rawDocumentSchema.superRefine(validateDocumentLines);
+
+export const documentUpdateSchema = rawDocumentSchema.extend({
+  documentId: z.uuid(),
+  expectedVersion: z.coerce.number().int().positive(),
+}).superRefine(validateDocumentLines);
 
 export const documentConvertSchema = z.object({
   documentId: z.uuid(),
@@ -116,6 +131,7 @@ export const documentTransitionSchema = z.object({
   documentId: z.uuid(),
   kind: z.enum(documentKinds),
   nextStatus: z.enum(documentStatuses),
+  warehouseId: optionalUuid,
 });
 
 export const inventoryMovementSchema = z.object({

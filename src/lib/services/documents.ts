@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { withCompany } from "@/lib/db/client";
+import { withCompany, type TransactionClient } from "@/lib/db/client";
+import { postInventoryMovementInTransaction } from "./inventory-service";
 import type { SessionContext } from "@/lib/auth/repository";
 import { calculateLine, sumLineAmounts } from "@/lib/domain/money";
 import { nextDocumentKind } from "@/lib/domain/document-conversion";
@@ -36,6 +37,8 @@ export type DocumentRow = {
   kind: DocumentKind;
   number: string;
   counterparty_name: string;
+  warehouse_id: string | null;
+  warehouse_name: string | null;
   status: DocumentStatus;
   issue_date: string;
   due_date: string | null;
@@ -78,12 +81,14 @@ export function listDocuments(
     const limit = Math.min(Math.max(filters.limit ?? 50, 1), 200);
     const offset = Math.max(filters.offset ?? 0, 0);
     const result = await tx.query<DocumentRow & { total_count: string }>(
-      `SELECT d.id, d.kind, d.number, c.name AS counterparty_name, d.status,
+      `SELECT d.id, d.kind, d.number, c.name AS counterparty_name,
+              d.warehouse_id, w.name AS warehouse_name, d.status,
               d.issue_date::text, d.due_date::text, d.currency, d.grand_total::text,
               u.name AS created_by_name, COUNT(*) OVER()::text AS total_count
        FROM documents d
        JOIN counterparties c ON c.company_id = d.company_id AND c.id = d.counterparty_id
        JOIN users u ON u.id = d.created_by
+       LEFT JOIN warehouses w ON w.company_id = d.company_id AND w.id = d.warehouse_id
        WHERE d.kind = $1
          AND ($2::text = '' OR d.number ILIKE '%' || $2 || '%' OR c.name ILIKE '%' || $2 || '%')
          AND ($3::text = '' OR d.status = $3)
@@ -106,6 +111,7 @@ export function getDocumentDetail(companyId: string, documentId: string, kind?: 
   return withCompany(companyId, async (tx) => {
     const documentResult = await tx.query<DocumentDetailRow>(
       `SELECT d.id, d.kind, d.number, d.counterparty_id, c.name AS counterparty_name,
+              d.warehouse_id, w.name AS warehouse_name,
               d.status, d.issue_date::text, d.due_date::text, d.currency,
               d.grand_total::text, d.notes, d.version, creator.name AS created_by_name,
               approver.name AS approved_by_name, d.approved_at::text, d.posted_at::text
@@ -113,6 +119,7 @@ export function getDocumentDetail(companyId: string, documentId: string, kind?: 
        JOIN counterparties c ON c.company_id = d.company_id AND c.id = d.counterparty_id
        JOIN users creator ON creator.id = d.created_by
        LEFT JOIN users approver ON approver.id = d.approved_by
+       LEFT JOIN warehouses w ON w.company_id = d.company_id AND w.id = d.warehouse_id
        WHERE d.id = $1 AND ($2::text IS NULL OR d.kind = $2)`,
       [documentId, kind ?? null],
     );
@@ -122,15 +129,75 @@ export function getDocumentDetail(companyId: string, documentId: string, kind?: 
       `SELECT id, item_id, position, sku_snapshot, name_snapshot, unit_snapshot,
               quantity::text, unit_price::text, discount_rate::text, tax_rate::text,
               net_amount::text, tax_amount::text, gross_amount::text
-       FROM document_lines WHERE document_id = $1 ORDER BY position`,
+       FROM document_lines
+       WHERE document_id = $1 AND superseded_at IS NULL
+       ORDER BY position`,
       [documentId],
     );
     return { document, lines: lines.rows };
   });
 }
 
+async function assertActiveWarehouse(tx: TransactionClient, warehouseId: string) {
+  const result = await tx.query<{ id: string }>(
+    "SELECT id FROM warehouses WHERE id = $1 AND is_active = true",
+    [warehouseId],
+  );
+  if (!result.rows[0]) throw new Error("Warehouse not found");
+}
+
+async function postFulfillmentInventory(
+  tx: TransactionClient,
+  session: SessionContext,
+  document: { id: string; kind: DocumentKind; number: string; warehouse_id: string | null },
+  warehouseId?: string,
+) {
+  if (document.kind !== "shipment" && document.kind !== "receipt") {
+    return warehouseId || document.warehouse_id;
+  }
+
+  const lines = await tx.query<{
+    id: string;
+    item_id: string | null;
+    quantity: string;
+    unit_price: string;
+    track_inventory: boolean;
+  }>(
+    `SELECT l.id, l.item_id, l.quantity::text, l.unit_price::text,
+            COALESCE(i.track_inventory, false) AS track_inventory
+     FROM document_lines l
+     LEFT JOIN items i ON i.company_id = l.company_id AND i.id = l.item_id
+     WHERE l.document_id = $1 AND l.superseded_at IS NULL
+     ORDER BY l.position`,
+    [document.id],
+  );
+  const tracked = lines.rows.filter((line) => line.item_id && line.track_inventory);
+  const resolvedWarehouseId = warehouseId || document.warehouse_id;
+  if (tracked.length > 0 && !resolvedWarehouseId) {
+    throw new Error("Warehouse is required to post a shipment or receipt");
+  }
+  if (resolvedWarehouseId) await assertActiveWarehouse(tx, resolvedWarehouseId);
+
+  const movementType = document.kind === "receipt" ? "receipt" : "issue";
+  for (const line of tracked) {
+    await postInventoryMovementInTransaction(tx, session, {
+      warehouseId: resolvedWarehouseId!,
+      itemId: line.item_id!,
+      movementType,
+      quantity: line.quantity,
+      unitCost: line.unit_price,
+      reason: `${documentKindLabels[document.kind]} ${document.number} 확정`,
+      idempotencyKey: `document:${document.id}:line:${line.id}`,
+      referenceType: "document",
+      referenceId: document.id,
+      referenceNumber: document.number,
+    });
+  }
+  return resolvedWarehouseId;
+}
+
 async function nextDocumentNumber(
-  tx: Parameters<Parameters<typeof withCompany>[1]>[0],
+  tx: TransactionClient,
   companyId: string,
   kind: DocumentKind,
   year: string,
@@ -164,6 +231,7 @@ export type DocumentLineInput = {
 export type CreateDocumentInput = {
   kind: DocumentKind;
   counterpartyId: string;
+  warehouseId?: string;
   itemId?: string;
   issueDate: string;
   dueDate?: string;
@@ -180,14 +248,16 @@ export type UpdateDraftDocumentInput = {
   kind: DocumentKind;
   expectedVersion: number;
   counterpartyId: string;
-  itemId: string;
+  warehouseId?: string;
+  itemId?: string;
   issueDate: string;
   dueDate?: string;
-  quantity: string;
-  unitPrice: string;
-  discountRate: string;
-  taxRate: string;
+  quantity?: string;
+  unitPrice?: string;
+  discountRate?: string;
+  taxRate?: string;
   notes?: string;
+  lines?: DocumentLineInput[];
 };
 
 export function createDocument(session: SessionContext, input: CreateDocumentInput) {
@@ -228,6 +298,7 @@ export function createDocument(session: SessionContext, input: CreateDocumentInp
       [input.counterpartyId],
     );
     if (!counterparty.rows[0]) throw new Error("Counterparty not found");
+    if (input.warehouseId) await assertActiveWarehouse(tx, input.warehouseId);
 
     const year = dateInTimeZone(session.companyTimezone).slice(0, 4);
     const number = await nextDocumentNumber(tx, session.companyId, input.kind, year);
@@ -235,10 +306,10 @@ export function createDocument(session: SessionContext, input: CreateDocumentInp
 
     await tx.query(
       `INSERT INTO documents
-         (id, company_id, kind, number, counterparty_id, status, issue_date, due_date,
+         (id, company_id, kind, number, counterparty_id, warehouse_id, status, issue_date, due_date,
           currency, subtotal, discount_total, tax_total, grand_total, notes, created_by)
-       VALUES ($1, $2, $3, $4, $5, 'draft', $6, $7, 'KRW', $8, $9, $10, $11, $12, $13)`,
-      [id, session.companyId, input.kind, number, input.counterpartyId, input.issueDate, input.dueDate || null, totals.net.toFixed(4), totals.discount.toFixed(4), totals.tax.toFixed(4), totals.gross.toFixed(4), input.notes || null, session.userId],
+       VALUES ($1, $2, $3, $4, $5, $6, 'draft', $7, $8, 'KRW', $9, $10, $11, $12, $13, $14)`,
+      [id, session.companyId, input.kind, number, input.counterpartyId, input.warehouseId || null, input.issueDate, input.dueDate || null, totals.net.toFixed(4), totals.discount.toFixed(4), totals.tax.toFixed(4), totals.gross.toFixed(4), input.notes || null, session.userId],
     );
     for (const row of prepared) {
       await tx.query(
@@ -312,7 +383,9 @@ export function convertDocument(session: SessionContext, documentId: string) {
     }>(
       `SELECT item_id, sku_snapshot, name_snapshot, unit_snapshot, quantity::text, unit_price::text,
               discount_rate::text, tax_rate::text, net_amount::text, tax_amount::text, gross_amount::text, position
-       FROM document_lines WHERE document_id = $1 ORDER BY position`,
+       FROM document_lines
+       WHERE document_id = $1 AND superseded_at IS NULL
+       ORDER BY position`,
       [documentId],
     );
 
@@ -365,48 +438,78 @@ export function updateDraftDocument(session: SessionContext, input: UpdateDraftD
     if (current.status !== "draft") throw new Error("Only draft documents can be edited");
     if (current.version !== input.expectedVersion) throw new Error("Document version conflict");
 
-    const itemResult = await tx.query<{ id: string; sku: string; name: string; unit: string }>(
-      "SELECT id, sku, name, unit FROM items WHERE id = $1 AND is_active = true",
-      [input.itemId],
+    const lineInputs: DocumentLineInput[] =
+      input.lines && input.lines.length > 0
+        ? input.lines
+        : [{
+            itemId: input.itemId ?? "",
+            quantity: input.quantity ?? "1",
+            unitPrice: input.unitPrice ?? "0",
+            discountRate: input.discountRate ?? "0",
+            taxRate: input.taxRate ?? "10",
+          }];
+    if (lineInputs.some((line) => !line.itemId)) throw new Error("Item not found");
+    if (lineInputs.length > 50) throw new Error("A document can have at most 50 lines");
+
+    const items = await tx.query<{ id: string; sku: string; name: string; unit: string }>(
+      `SELECT id, sku, name, unit FROM items WHERE is_active = true AND id = ANY($1::uuid[])`,
+      [lineInputs.map((line) => line.itemId)],
     );
-    const item = itemResult.rows[0];
-    if (!item) throw new Error("Item not found");
+    const itemById = new Map(items.rows.map((item) => [item.id, item]));
+    const prepared = lineInputs.map((line, index) => {
+      const item = itemById.get(line.itemId);
+      if (!item) throw new Error("Item not found");
+      const amounts = calculateLine({
+        quantity: line.quantity,
+        unitPrice: line.unitPrice,
+        discountRate: line.discountRate,
+        taxRate: line.taxRate,
+        currency: "KRW",
+      });
+      return { item, line, amounts, position: index + 1 };
+    });
+
     const counterparty = await tx.query<{ id: string }>(
       "SELECT id FROM counterparties WHERE id = $1 AND is_active = true",
       [input.counterpartyId],
     );
     if (!counterparty.rows[0]) throw new Error("Counterparty not found");
-    const lineResult = await tx.query<{ id: string }>(
-      "SELECT id FROM document_lines WHERE document_id = $1 ORDER BY position",
-      [input.documentId],
-    );
-    if (lineResult.rows.length !== 1) throw new Error("Only single-line draft documents can be edited through this operation");
+    if (input.warehouseId) await assertActiveWarehouse(tx, input.warehouseId);
 
-    const amounts = calculateLine({
-      quantity: input.quantity,
-      unitPrice: input.unitPrice,
-      discountRate: input.discountRate,
-      taxRate: input.taxRate,
-      currency: "KRW",
-    });
+    const totals = sumLineAmounts(prepared.map((row) => row.amounts));
     await tx.query(
       `UPDATE documents
-       SET counterparty_id = $2, issue_date = $3, due_date = $4,
-           subtotal = $5, discount_total = $6, tax_total = $7, grand_total = $8,
-           notes = $9, version = version + 1
+       SET counterparty_id = $2, warehouse_id = COALESCE($3, warehouse_id),
+           issue_date = $4, due_date = $5,
+           subtotal = $6, discount_total = $7, tax_total = $8, grand_total = $9,
+           notes = $10, version = version + 1
        WHERE id = $1`,
-      [input.documentId, input.counterpartyId, input.issueDate, input.dueDate || null,
-        amounts.net, amounts.discount, amounts.tax, amounts.gross, input.notes || null],
+      [
+        input.documentId,
+        input.counterpartyId,
+        input.warehouseId || null,
+        input.issueDate,
+        input.dueDate || null,
+        totals.net.toFixed(4),
+        totals.discount.toFixed(4),
+        totals.tax.toFixed(4),
+        totals.gross.toFixed(4),
+        input.notes || null,
+      ],
     );
     await tx.query(
-      `UPDATE document_lines
-       SET item_id = $2, sku_snapshot = $3, name_snapshot = $4, unit_snapshot = $5,
-           quantity = $6, unit_price = $7, discount_rate = $8, tax_rate = $9,
-           net_amount = $10, tax_amount = $11, gross_amount = $12
-       WHERE id = $1`,
-      [lineResult.rows[0]!.id, item.id, item.sku, item.name, item.unit, input.quantity,
-        input.unitPrice, input.discountRate, input.taxRate, amounts.net, amounts.tax, amounts.gross],
+      "UPDATE document_lines SET superseded_at = now() WHERE document_id = $1 AND superseded_at IS NULL",
+      [input.documentId],
     );
+    for (const row of prepared) {
+      await tx.query(
+        `INSERT INTO document_lines
+           (id, company_id, document_id, item_id, position, sku_snapshot, name_snapshot,
+            unit_snapshot, quantity, unit_price, discount_rate, tax_rate, net_amount, tax_amount, gross_amount)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+        [randomUUID(), session.companyId, input.documentId, row.item.id, row.position, row.item.sku, row.item.name, row.item.unit, row.line.quantity, row.line.unitPrice, row.line.discountRate, row.line.taxRate, row.amounts.net, row.amounts.tax, row.amounts.gross],
+      );
+    }
     await writeAudit(tx, {
       companyId: session.companyId,
       actorUserId: session.userId,
@@ -415,7 +518,7 @@ export function updateDraftDocument(session: SessionContext, input: UpdateDraftD
       entityId: input.documentId,
       summary: `${current.number} 초안 수정`,
       beforeData: { version: current.version, grandTotal: current.grand_total },
-      afterData: { version: current.version + 1, grandTotal: amounts.gross },
+      afterData: { version: current.version + 1, grandTotal: totals.gross.toFixed(4), lineCount: prepared.length },
     });
     return { id: input.documentId, number: current.number, version: current.version + 1 };
   });
@@ -425,10 +528,17 @@ export function transitionDocument(
   session: SessionContext,
   documentId: string,
   nextStatus: DocumentStatus,
+  warehouseId?: string,
 ) {
   return withCompany(session.companyId, async (tx) => {
-    const result = await tx.query<{ status: DocumentStatus; number: string }>(
-      "SELECT status, number FROM documents WHERE id = $1 FOR UPDATE",
+    const result = await tx.query<{
+      id: string;
+      status: DocumentStatus;
+      number: string;
+      kind: DocumentKind;
+      warehouse_id: string | null;
+    }>(
+      "SELECT id, status, number, kind, warehouse_id FROM documents WHERE id = $1 FOR UPDATE",
       [documentId],
     );
     const document = result.rows[0];
@@ -437,15 +547,20 @@ export function transitionDocument(
     assertPermission(session.role, needsApproval ? "documents:approve" : "documents:write");
     assertDocumentTransition(document.status, nextStatus);
 
+    const postedWarehouseId = nextStatus === "posted"
+      ? await postFulfillmentInventory(tx, session, document, warehouseId)
+      : document.warehouse_id;
+
     await tx.query(
       `UPDATE documents
        SET status = $2,
+           warehouse_id = COALESCE($4, warehouse_id),
            approved_by = CASE WHEN $2 = 'approved' THEN $3 ELSE approved_by END,
            approved_at = CASE WHEN $2 = 'approved' THEN now() ELSE approved_at END,
            posted_at = CASE WHEN $2 = 'posted' THEN now() ELSE posted_at END,
            version = version + 1
        WHERE id = $1`,
-      [documentId, nextStatus, session.userId],
+      [documentId, nextStatus, session.userId, nextStatus === "posted" ? postedWarehouseId : null],
     );
     await writeAudit(tx, {
       companyId: session.companyId,
@@ -455,7 +570,7 @@ export function transitionDocument(
       entityId: documentId,
       summary: `${document.number} 상태 ${document.status} → ${nextStatus}`,
       beforeData: { status: document.status },
-      afterData: { status: nextStatus },
+      afterData: { status: nextStatus, warehouseId: postedWarehouseId },
     });
   });
 }

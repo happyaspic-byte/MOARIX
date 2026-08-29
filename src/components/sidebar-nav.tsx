@@ -6,6 +6,7 @@ import { useEffect } from "react";
 import {
   Boxes,
   Building2,
+  CarFront,
   ChartNoAxesCombined,
   ClipboardList,
   ClipboardCheck,
@@ -63,6 +64,7 @@ const groups: ReadonlyArray<{
       { href: "/sites", label: "고객 사업장", icon: MapPinned, permission: "assets:read" },
       { href: "/assets", label: "자산·지원 계약", icon: Store, permission: "assets:read" },
       { href: "/inspections", label: "정기점검", icon: ClipboardCheck, permission: "service:read" },
+      { href: "/trips", label: "운행일지", icon: CarFront, permission: "trips:read" },
       { href: "/service", label: "장애·지원", icon: Wrench, permission: "service:read" },
       { href: "/reports", label: "운영 보고서", icon: ChartNoAxesCombined, permission: "reports:read" },
     ],

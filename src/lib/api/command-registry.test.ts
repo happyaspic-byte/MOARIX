@@ -42,6 +42,34 @@ describe("command registry", () => {
     expect(parseCommandInput(definition, { id: "AST-0001" })).toEqual({ id: "AST-0001" });
   });
 
+  it("accepts multi-line quote draft updates without legacy single-line fields", () => {
+    const definition = getCommandDefinition("quotes.update");
+    const parsed = parseCommandInput(definition, {
+      id: "Q-2026-0001",
+      expectedVersion: 2,
+      counterpartyId: "8e5e254f-5144-470f-a987-fe6f11e35e31",
+      issueDate: "2026-08-29",
+      lines: [
+        {
+          itemId: "2e62fe93-b7bd-4603-8911-03f08376cb2f",
+          quantity: "2",
+          unitPrice: "7000",
+          discountRate: "0",
+          taxRate: "10",
+        },
+        {
+          itemId: "e536f4bb-5c52-47be-8fc3-7affd57c1d32",
+          quantity: "1",
+          unitPrice: "80000",
+          discountRate: "5",
+          taxRate: "10",
+        },
+      ],
+    });
+
+    expect(parsed).toMatchObject({ expectedVersion: 2, lines: [{ quantity: "2" }, { quantity: "1" }] });
+  });
+
   it("requires a distinct token scope for approval-risk transitions", () => {
     const tripTransition = getCommandDefinition("trips.transition");
     const approveTrip = parseCommandInput(tripTransition, {

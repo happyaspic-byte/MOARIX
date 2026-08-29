@@ -4,43 +4,49 @@ import { revalidatePath } from "next/cache";
 import type { FormState } from "@/components/form-message";
 import { requirePermission } from "@/lib/auth/current";
 import { publicError } from "@/lib/errors";
-import { convertDocument, createDocument, transitionDocument } from "@/lib/services/documents";
-import { documentConvertSchema, documentSchema, documentTransitionSchema } from "@/lib/validation/forms";
+import { convertDocument, createDocument, transitionDocument, updateDraftDocument } from "@/lib/services/documents";
+import { parseDocumentFormData } from "@/lib/validation/document-form-data";
+import { documentConvertSchema, documentSchema, documentTransitionSchema, documentUpdateSchema } from "@/lib/validation/forms";
 
-function parseDocumentForm(formData: FormData) {
-  const raw = Object.fromEntries(formData);
-  const lines: Array<{ itemId: string; quantity: string; unitPrice: string; discountRate: string; taxRate: string }> = [];
-  for (const [key, value] of formData.entries()) {
-    const match = key.match(/^lines\.(\d+)\.(\w+)$/);
-    if (!match) continue;
-    const index = Number(match[1]);
-    const field = match[2] as "itemId" | "quantity" | "unitPrice" | "discountRate" | "taxRate";
-    lines[index] ??= { itemId: "", quantity: "1", unitPrice: "0", discountRate: "0", taxRate: "10" };
-    lines[index][field] = String(value);
-  }
-  return {
-    ...raw,
-    lines: lines.filter((line) => line && line.itemId),
-  };
+function refreshDocuments(kind: string) {
+  revalidatePath(`/documents/${kind}`);
+  revalidatePath("/dashboard");
+  revalidatePath("/inventory");
 }
 
 export async function createDocumentAction(_state: FormState, formData: FormData): Promise<FormState> {
-  const parsed = documentSchema.safeParse(parseDocumentForm(formData));
+  const parsed = documentSchema.safeParse(parseDocumentFormData(formData));
   if (!parsed.success) return { status: "error", message: parsed.error.issues[0]?.message ?? "입력값을 확인해 주세요." };
   try {
     const session = await requirePermission("documents:write");
     const created = await createDocument(session, parsed.data);
-    revalidatePath(`/documents/${parsed.data.kind}`); revalidatePath("/dashboard");
+    refreshDocuments(parsed.data.kind);
     return { status: "success", message: `${created.number} 문서를 작성했습니다.` };
   } catch (error) { return { status: "error", message: publicError(error, "문서를 작성하지 못했습니다.") }; }
 }
 
-export async function transitionDocumentAction(formData: FormData) {
+export async function updateDraftDocumentAction(_state: FormState, formData: FormData): Promise<FormState> {
+  const parsed = documentUpdateSchema.safeParse(parseDocumentFormData(formData));
+  if (!parsed.success) return { status: "error", message: parsed.error.issues[0]?.message ?? "입력값을 확인해 주세요." };
+  try {
+    const session = await requirePermission("documents:write");
+    const updated = await updateDraftDocument(session, parsed.data);
+    refreshDocuments(parsed.data.kind);
+    return { status: "success", message: `${updated.number} 초안을 수정했습니다.` };
+  } catch (error) { return { status: "error", message: publicError(error, "초안을 수정하지 못했습니다.") }; }
+}
+
+export async function transitionDocumentAction(_state: FormState, formData: FormData): Promise<FormState> {
   const parsed = documentTransitionSchema.safeParse(Object.fromEntries(formData));
-  if (!parsed.success) throw new Error("Invalid document transition request");
-  const session = await requirePermission("documents:write");
-  await transitionDocument(session, parsed.data.documentId, parsed.data.nextStatus);
-  revalidatePath(`/documents/${parsed.data.kind}`); revalidatePath("/dashboard");
+  if (!parsed.success) return { status: "error", message: parsed.error.issues[0]?.message ?? "입력값을 확인해 주세요." };
+  try {
+    const session = await requirePermission("documents:write");
+    await transitionDocument(session, parsed.data.documentId, parsed.data.nextStatus, parsed.data.warehouseId);
+    refreshDocuments(parsed.data.kind);
+    return { status: "success", message: "문서 상태를 변경했습니다." };
+  } catch (error) {
+    return { status: "error", message: publicError(error, "문서 상태를 변경하지 못했습니다.") };
+  }
 }
 
 export async function convertDocumentAction(formData: FormData) {
@@ -51,4 +57,5 @@ export async function convertDocumentAction(formData: FormData) {
   revalidatePath(`/documents/${parsed.data.kind}`);
   revalidatePath(`/documents/${converted.kind}`);
   revalidatePath("/dashboard");
+  revalidatePath("/inventory");
 }

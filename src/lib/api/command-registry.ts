@@ -145,12 +145,12 @@ const quoteCreateSchema = rawDocumentSchema.omit({ kind: true }).superRefine((va
 const quoteUpdateSchema = rawDocumentSchema.omit({ kind: true }).extend({
   id: referenceSchema,
   expectedVersion: z.number().int().positive(),
-  itemId: z.uuid(),
-  quantity: z.string().trim().min(1),
-  unitPrice: z.string().trim().min(1),
-  discountRate: z.string().trim().min(1),
-  taxRate: z.string().trim().min(1),
-}).strict();
+}).strict().superRefine((value, context) => {
+  if (value.lines && value.lines.length > 0) return;
+  if (!value.itemId) context.addIssue({ code: "custom", path: ["itemId"], message: "품목을 선택하세요." });
+  if (!value.quantity) context.addIssue({ code: "custom", path: ["quantity"], message: "수량을 입력하세요." });
+  if (value.unitPrice === undefined) context.addIssue({ code: "custom", path: ["unitPrice"], message: "단가를 입력하세요." });
+});
 const quoteTransitionSchema = z.object({
   id: referenceSchema,
   nextStatus: z.enum(["draft", "submitted", "approved", "posted", "cancelled"]),
@@ -347,8 +347,8 @@ const commands: CommandDefinition[] = [
     execute: async (actor, input) => filterAndLimit((await listDocuments(actor.companyId, "quote")).rows, input, ["number", "counterparty_name"]),
   }),
   defineCommand({ operation: "quotes.get", summary: "견적서 헤더·라인·버전을 조회합니다.", mode: "read", permission: "documents:read", scope: "quotes:read", inputSchema: getSchema, execute: async (actor, input) => { const quote = await resolveQuote(actor.companyId, input.id); const detail = await getDocumentDetail(actor.companyId, quote.id, "quote"); if (!detail) throw new ApiError("NOT_FOUND", 404, "견적서를 찾을 수 없습니다."); return detail; } }),
-  defineCommand({ operation: "quotes.create", summary: "단일 품목 견적 초안을 생성합니다.", mode: "write", permission: "documents:write", scope: "quotes:write", inputSchema: quoteCreateSchema, execute: async (actor, input) => createDocument(actor, { ...input, kind: "quote" }) }),
-  defineCommand({ operation: "quotes.update", summary: "버전 충돌을 검사하며 단일 품목 견적 초안을 수정합니다.", mode: "write", permission: "documents:write", scope: "quotes:write", inputSchema: quoteUpdateSchema, execute: async (actor, input) => { const quote = await resolveQuote(actor.companyId, input.id); const update = omitCommandId(input); return updateDraftDocument(actor, { ...update, documentId: quote.id, kind: "quote" }); } }),
+  defineCommand({ operation: "quotes.create", summary: "다중 품목 견적 초안을 생성합니다.", mode: "write", permission: "documents:write", scope: "quotes:write", inputSchema: quoteCreateSchema, execute: async (actor, input) => createDocument(actor, { ...input, kind: "quote" }) }),
+  defineCommand({ operation: "quotes.update", summary: "버전 충돌을 검사하며 다중 품목 견적 초안을 수정합니다.", mode: "write", permission: "documents:write", scope: "quotes:write", inputSchema: quoteUpdateSchema, execute: async (actor, input) => { const quote = await resolveQuote(actor.companyId, input.id); const update = omitCommandId(input); return updateDraftDocument(actor, { ...update, documentId: quote.id, kind: "quote" }); } }),
   defineCommand({
     operation: "quotes.transition", summary: "견적서를 제출·승인·확정·취소합니다.",
     mode: "write", permission: "documents:write", scope: "quotes:write", inputSchema: quoteTransitionSchema,

@@ -7,6 +7,14 @@ export function publicError(error: unknown, fallback = "요청을 처리하지 �
     if (error.message.includes("Negative stock") || error.message.includes("Reserved stock")) {
       return error.message;
     }
+    if (error.message.includes("Warehouse is required")) return "출고·입고를 확정하려면 창고를 선택하세요.";
+    if (error.message.includes("Driving log version conflict") || error.message.includes("Document version conflict")) {
+      return "다른 사용자가 이 운행일지를 먼저 수정했습니다. 다시 불러오세요.".replace("운행일지", error.message.includes("Document") ? "문서" : "운행일지");
+    }
+    if (error.message.includes("Self approval")) return "작성자는 자신의 운행일지를 승인할 수 없습니다.";
+    if (error.message.includes("Void reason is required")) return "무효 처리 사유를 입력하세요.";
+    if (error.message.includes("Return reason is required")) return "반려 사유를 입력하세요.";
+    if (error.message.includes("Invalid driving log transition")) return "현재 상태에서 요청한 운행일지 상태로 변경할 수 없습니다.";
     if (error.message.includes("last active owner")) return "회사의 마지막 소유자는 비활성화하거나 역할을 변경할 수 없습니다.";
     if (error.message.includes("cannot manage an owner")) return "관리자는 소유자 계정을 변경할 수 없습니다.";
     if (error.message.includes("cannot assign the owner role")) return "소유자 역할은 현재 소유자만 지정할 수 있습니다.";

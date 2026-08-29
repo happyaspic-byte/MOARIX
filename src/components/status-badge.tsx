@@ -1,4 +1,4 @@
-const statusLabels: Record<string, string> = {
+export const statusLabels: Record<string, string> = {
   draft: "작성 중",
   submitted: "승인 대기",
   approved: "승인됨",
@@ -58,6 +58,7 @@ const statusLabels: Record<string, string> = {
   trial: "평가판",
   suspended: "중지",
   other: "기타",
+  void: "무효",
 };
 
 export function StatusBadge({ status }: { status: string }) {

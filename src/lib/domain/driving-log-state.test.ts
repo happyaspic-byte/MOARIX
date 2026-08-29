@@ -3,6 +3,8 @@ import {
   allowedDrivingLogTransitions,
   assertDrivingLogDraft,
   assertDrivingLogTransition,
+  currentDrivingLogMonth,
+  drivingLogWorkspaceActions,
 } from "./driving-log-state";
 
 describe("driving log state", () => {
@@ -24,5 +26,25 @@ describe("driving log state", () => {
       "Only draft driving logs can be edited",
     );
     expect(() => assertDrivingLogDraft("draft")).not.toThrow();
+  });
+
+  it("defaults the list to the company-local calendar month", () => {
+    expect(currentDrivingLogMonth("Asia/Seoul", new Date("2026-08-31T16:00:00.000Z"))).toBe("2026-09");
+  });
+
+  it("shows writer draft actions and independent approval without self-approve", () => {
+    const writer = { canWrite: true, canApprove: false, isCreator: true };
+    const approver = { canWrite: true, canApprove: true, isCreator: false };
+    const selfApprover = { canWrite: true, canApprove: true, isCreator: true };
+    const viewer = { canWrite: false, canApprove: false, isCreator: false };
+
+    expect(drivingLogWorkspaceActions("draft", writer)).toEqual(["edit", "submit", "void"]);
+    expect(drivingLogWorkspaceActions("submitted", writer)).toEqual(["return", "void"]);
+    expect(drivingLogWorkspaceActions("submitted", approver)).toEqual(["return", "approve", "void"]);
+    expect(drivingLogWorkspaceActions("submitted", selfApprover)).toEqual(["return", "void"]);
+    expect(drivingLogWorkspaceActions("approved", writer)).toEqual([]);
+    expect(drivingLogWorkspaceActions("approved", approver)).toEqual(["void"]);
+    expect(drivingLogWorkspaceActions("void", approver)).toEqual([]);
+    expect(drivingLogWorkspaceActions("draft", viewer)).toEqual([]);
   });
 });

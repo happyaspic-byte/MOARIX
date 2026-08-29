@@ -242,7 +242,7 @@ textarea { min-height: 88px; resize: vertical; }
 .status-submitted, .status-maintenance, .status-high { border-color: #f0d28c; background: var(--amber-soft); color: #835100; }
 .status-approved, .status-active, .status-open, .status-resolved { border-color: #b7ddd2; background: var(--primary-soft); color: var(--primary-dark); }
 .status-posted, .status-in_progress { border-color: #c5d9ee; background: var(--blue-soft); color: #205b91; }
-.status-cancelled, .status-retired, .status-critical, .status-overdue { border-color: #f0c2ba; background: var(--coral-soft); color: #9d3426; }
+.status-cancelled, .status-retired, .status-critical, .status-overdue, .status-void { border-color: #f0c2ba; background: var(--coral-soft); color: #9d3426; }
 .status-low { border-color: #d8e5e0; background: #f6faf8; color: #61736d; }
 .status-covered, .status-completed, .status-healthy, .status-pass, .status-ha, .status-up, .status-running, .status-perpetual { border-color: #b7ddd2; background: var(--primary-soft); color: var(--primary-dark); }
 .status-expiring, .status-renewal_90, .status-renewal_60, .status-renewal_30, .status-expires_today, .status-scheduled, .status-warning, .status-issue_found, .status-at_risk, .status-vendor_unverified, .status-standby, .status-degraded, .status-subscription, .status-trial { border-color: #f0d28c; background: var(--amber-soft); color: #835100; }
