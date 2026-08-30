@@ -154,6 +154,7 @@ const quoteUpdateSchema = rawDocumentSchema.omit({ kind: true }).extend({
 const quoteTransitionSchema = z.object({
   id: referenceSchema,
   nextStatus: z.enum(["draft", "submitted", "approved", "posted", "cancelled"]),
+  expectedVersion: z.number().int().positive(),
 }).strict();
 const assetUpdateSchema = assetProfileSchema.omit({ assetId: true }).partial().extend({ id: referenceSchema }).strict()
   .refine((value) => Object.keys(value).some((key) => key !== "id"), "수정할 자산 운영 프로필 필드를 하나 이상 입력하세요.");
@@ -358,7 +359,7 @@ const commands: CommandDefinition[] = [
       when: "nextStatus가 approved, posted 또는 cancelled인 경우",
       required: (input) => ["approved", "posted", "cancelled"].includes((input as { nextStatus?: string }).nextStatus ?? ""),
     }],
-    execute: async (actor, input) => { const quote = await resolveQuote(actor.companyId, input.id); await transitionDocument(actor, quote.id, input.nextStatus); return { id: quote.id, status: input.nextStatus }; },
+    execute: async (actor, input) => { const quote = await resolveQuote(actor.companyId, input.id); await transitionDocument(actor, quote.id, input.nextStatus, input.expectedVersion); return { id: quote.id, status: input.nextStatus, version: input.expectedVersion + 1 }; },
   }),
   defineCommand({
     operation: "trips.list", summary: "운행일지를 월·상태·고객·케이스 조건으로 조회합니다.",

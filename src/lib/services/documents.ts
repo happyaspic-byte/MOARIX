@@ -40,6 +40,7 @@ export type DocumentRow = {
   warehouse_id: string | null;
   warehouse_name: string | null;
   status: DocumentStatus;
+  version: number;
   issue_date: string;
   due_date: string | null;
   currency: string;
@@ -50,7 +51,6 @@ export type DocumentRow = {
 export type DocumentDetailRow = DocumentRow & {
   counterparty_id: string;
   notes: string | null;
-  version: number;
   approved_by_name: string | null;
   approved_at: string | null;
   posted_at: string | null;
@@ -82,7 +82,7 @@ export function listDocuments(
     const offset = Math.max(filters.offset ?? 0, 0);
     const result = await tx.query<DocumentRow & { total_count: string }>(
       `SELECT d.id, d.kind, d.number, c.name AS counterparty_name,
-              d.warehouse_id, w.name AS warehouse_name, d.status,
+              d.warehouse_id, w.name AS warehouse_name, d.status, d.version,
               d.issue_date::text, d.due_date::text, d.currency, d.grand_total::text,
               u.name AS created_by_name, COUNT(*) OVER()::text AS total_count
        FROM documents d
@@ -149,10 +149,21 @@ async function assertActiveWarehouse(tx: TransactionClient, warehouseId: string)
 async function postFulfillmentInventory(
   tx: TransactionClient,
   session: SessionContext,
-  document: { id: string; kind: DocumentKind; number: string; warehouse_id: string | null },
+  document: {
+    id: string;
+    kind: DocumentKind;
+    number: string;
+    warehouse_id: string | null;
+    source_document_id: string | null;
+  },
   warehouseId?: string,
 ) {
-  if (document.kind !== "shipment" && document.kind !== "receipt") {
+  const movementType =
+    document.kind === "receipt" ? "receipt"
+    : document.kind === "shipment" ? "issue"
+    : document.kind === "sales_order" ? "reservation"
+    : null;
+  if (!movementType) {
     return warehouseId || document.warehouse_id;
   }
 
@@ -174,11 +185,38 @@ async function postFulfillmentInventory(
   const tracked = lines.rows.filter((line) => line.item_id && line.track_inventory);
   const resolvedWarehouseId = warehouseId || document.warehouse_id;
   if (tracked.length > 0 && !resolvedWarehouseId) {
-    throw new Error("Warehouse is required to post a shipment or receipt");
+    throw new Error("Warehouse is required to post a shipment, receipt, or sales order");
   }
   if (resolvedWarehouseId) await assertActiveWarehouse(tx, resolvedWarehouseId);
 
-  const movementType = document.kind === "receipt" ? "receipt" : "issue";
+  if (document.kind === "shipment" && document.source_document_id) {
+    const reservations = await tx.query<{
+      id: string;
+      warehouse_id: string;
+      item_id: string;
+      quantity: string;
+    }>(
+      `SELECT id, warehouse_id, item_id, quantity::text
+       FROM inventory_movements
+       WHERE reference_id = $1 AND movement_type = 'reservation'`,
+      [document.source_document_id],
+    );
+    for (const reservation of reservations.rows) {
+      await postInventoryMovementInTransaction(tx, session, {
+        warehouseId: reservation.warehouse_id,
+        itemId: reservation.item_id,
+        movementType: "release",
+        quantity: reservation.quantity.replace(/^-/, ""),
+        unitCost: "0",
+        reason: `${documentKindLabels.shipment} ${document.number} 예약 해제`,
+        idempotencyKey: `document:${document.id}:release:${reservation.id}`,
+        referenceType: "document",
+        referenceId: document.id,
+        referenceNumber: document.number,
+      });
+    }
+  }
+
   for (const line of tracked) {
     await postInventoryMovementInTransaction(tx, session, {
       warehouseId: resolvedWarehouseId!,
@@ -342,6 +380,7 @@ export function convertDocument(session: SessionContext, documentId: string) {
       number: string;
       status: DocumentStatus;
       counterparty_id: string;
+      warehouse_id: string | null;
       issue_date: string;
       due_date: string | null;
       notes: string | null;
@@ -350,7 +389,7 @@ export function convertDocument(session: SessionContext, documentId: string) {
       tax_total: string;
       grand_total: string;
     }>(
-      `SELECT id, kind, number, status, counterparty_id, issue_date::text, due_date::text, notes,
+      `SELECT id, kind, number, status, counterparty_id, warehouse_id, issue_date::text, due_date::text, notes,
               subtotal::text, discount_total::text, tax_total::text, grand_total::text
        FROM documents WHERE id = $1 FOR UPDATE`,
       [documentId],
@@ -394,10 +433,10 @@ export function convertDocument(session: SessionContext, documentId: string) {
     const today = dateInTimeZone(session.companyTimezone);
     await tx.query(
       `INSERT INTO documents
-         (id, company_id, kind, number, counterparty_id, status, issue_date, due_date,
+         (id, company_id, kind, number, counterparty_id, warehouse_id, status, issue_date, due_date,
           currency, subtotal, discount_total, tax_total, grand_total, notes, created_by, source_document_id)
-       VALUES ($1, $2, $3, $4, $5, 'draft', $6, $7, 'KRW', $8, $9, $10, $11, $12, $13, $14)`,
-      [id, session.companyId, targetKind, number, document.counterparty_id, today, document.due_date, document.subtotal, document.discount_total, document.tax_total, document.grand_total, document.notes, session.userId, document.id],
+       VALUES ($1, $2, $3, $4, $5, $6, 'draft', $7, $8, 'KRW', $9, $10, $11, $12, $13, $14, $15)`,
+      [id, session.companyId, targetKind, number, document.counterparty_id, document.warehouse_id, today, document.due_date, document.subtotal, document.discount_total, document.tax_total, document.grand_total, document.notes, session.userId, document.id],
     );
     for (const line of lines.rows) {
       await tx.query(
@@ -528,40 +567,49 @@ export function transitionDocument(
   session: SessionContext,
   documentId: string,
   nextStatus: DocumentStatus,
+  expectedVersion: number,
   warehouseId?: string,
 ) {
+  if (!Number.isInteger(expectedVersion) || expectedVersion < 1) {
+    throw new Error("Expected version must be a positive integer");
+  }
   return withCompany(session.companyId, async (tx) => {
     const result = await tx.query<{
       id: string;
       status: DocumentStatus;
       number: string;
       kind: DocumentKind;
+      version: number;
       warehouse_id: string | null;
+      source_document_id: string | null;
     }>(
-      "SELECT id, status, number, kind, warehouse_id FROM documents WHERE id = $1 FOR UPDATE",
+      "SELECT id, status, number, kind, version, warehouse_id, source_document_id FROM documents WHERE id = $1 FOR UPDATE",
       [documentId],
     );
     const document = result.rows[0];
     if (!document) throw new Error("Document not found");
     const needsApproval = nextStatus === "approved" || nextStatus === "posted" || (document.status === "approved" && nextStatus === "cancelled");
     assertPermission(session.role, needsApproval ? "documents:approve" : "documents:write");
+    if (document.version !== expectedVersion) throw new Error("Document version conflict");
     assertDocumentTransition(document.status, nextStatus);
 
     const postedWarehouseId = nextStatus === "posted"
       ? await postFulfillmentInventory(tx, session, document, warehouseId)
       : document.warehouse_id;
 
-    await tx.query(
+    const updated = await tx.query<{ version: number }>(
       `UPDATE documents
        SET status = $2,
-           warehouse_id = COALESCE($4, warehouse_id),
-           approved_by = CASE WHEN $2 = 'approved' THEN $3 ELSE approved_by END,
+           warehouse_id = COALESCE($5, warehouse_id),
+           approved_by = CASE WHEN $2 = 'approved' THEN $4 ELSE approved_by END,
            approved_at = CASE WHEN $2 = 'approved' THEN now() ELSE approved_at END,
            posted_at = CASE WHEN $2 = 'posted' THEN now() ELSE posted_at END,
            version = version + 1
-       WHERE id = $1`,
-      [documentId, nextStatus, session.userId, nextStatus === "posted" ? postedWarehouseId : null],
+       WHERE id = $1 AND version = $3
+       RETURNING version`,
+      [documentId, nextStatus, expectedVersion, session.userId, nextStatus === "posted" ? postedWarehouseId : null],
     );
+    if (!updated.rows[0]) throw new Error("Document version conflict");
     await writeAudit(tx, {
       companyId: session.companyId,
       actorUserId: session.userId,
@@ -569,8 +617,8 @@ export function transitionDocument(
       entityType: "document",
       entityId: documentId,
       summary: `${document.number} 상태 ${document.status} → ${nextStatus}`,
-      beforeData: { status: document.status },
-      afterData: { status: nextStatus, warehouseId: postedWarehouseId },
+      beforeData: { status: document.status, version: document.version },
+      afterData: { status: nextStatus, version: updated.rows[0].version, warehouseId: postedWarehouseId },
     });
   });
 }

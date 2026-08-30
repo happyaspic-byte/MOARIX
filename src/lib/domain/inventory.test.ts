@@ -7,6 +7,9 @@ describe("inventory invariants", () => {
     const reserved = applyStockMovement(received, "reservation", "4");
     expect(availableQuantity(reserved)).toBe("6.0000");
     expect(applyStockMovement(reserved, "issue", "3")).toEqual({ onHand: "7.0000", reserved: "4.0000" });
+    const released = applyStockMovement(reserved, "release", "4");
+    expect(applyStockMovement(released, "issue", "4")).toEqual({ onHand: "6.0000", reserved: "0.0000" });
+    expect(() => applyStockMovement(reserved, "issue", "7")).toThrow("Reserved stock");
   });
 
   it("blocks negative or over-reserved stock", () => {

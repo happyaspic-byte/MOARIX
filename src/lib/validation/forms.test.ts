@@ -35,6 +35,7 @@ describe("document warehouse validation", () => {
       documentId: "c8e9d126-039a-431a-8f7b-b0e22d960169",
       kind: "receipt",
       nextStatus: "posted",
+      expectedVersion: "3",
       warehouseId,
     });
 
@@ -46,6 +47,7 @@ describe("document warehouse validation", () => {
       documentId: "c8e9d126-039a-431a-8f7b-b0e22d960169",
       kind: "receipt",
       nextStatus: "posted",
+      expectedVersion: 3,
       warehouseId: "not-a-warehouse-id",
     });
 

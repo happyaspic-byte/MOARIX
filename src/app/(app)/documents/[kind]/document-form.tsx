@@ -59,7 +59,7 @@ export function DocumentForm({
     <label className="full"><span>거래처 *</span><select name="counterpartyId" required defaultValue={initial?.counterpartyId ?? ""}><option value="" disabled>거래처 선택</option>{counterparties.map((row) => <option value={row.id} key={row.id}>{row.code} · {row.name}</option>)}</select></label>
     <label><span>발행일 *</span><input name="issueDate" type="date" defaultValue={initial?.issueDate ?? today} required /></label>
     <label><span>납기·지급 예정일</span><input name="dueDate" type="date" defaultValue={initial?.dueDate ?? ""} /></label>
-    <label className="full"><span>창고{kind === "shipment" || kind === "receipt" ? " · 확정 시 필수" : ""}</span><select name="warehouseId" defaultValue={initial?.warehouseId ?? ""}><option value="">미지정</option>{warehouses.map((row) => <option value={row.id} key={row.id}>{row.code} · {row.name}</option>)}</select></label>
+    <label className="full"><span>창고{kind === "shipment" || kind === "receipt" || kind === "sales_order" ? " · 확정 시 필수" : ""}</span><select name="warehouseId" defaultValue={initial?.warehouseId ?? ""}><option value="">미지정</option>{warehouses.map((row) => <option value={row.id} key={row.id}>{row.code} · {row.name}</option>)}</select></label>
     <div className="full document-lines">
       <header className="card-header"><div><h3>품목 행</h3><p>여러 품목을 한 문서에 등록합니다. 할인율은 행 단위입니다.</p></div><div className="row-actions"><span className="muted">{lines.length}/50행</span><button type="button" className="button small" disabled={lines.length >= 50} onClick={() => setLines((current) => [...current, emptyLine()])}>행 추가</button></div></header>
       {lines.map((line, index) => (

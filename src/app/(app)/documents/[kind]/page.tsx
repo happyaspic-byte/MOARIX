@@ -128,13 +128,13 @@ export default async function DocumentsPage({
           <td><div className="page-actions">
             {row.status === "draft" && canWrite ? <>
               <a className="button small" href={`/documents/${kind}?edit=${row.id}`}>수정</a>
-              <DocumentStatusAction id={row.id} kind={kind} status="submitted" label="제출" />
-              <DocumentStatusAction id={row.id} kind={kind} status="cancelled" label="취소" danger />
+              <DocumentStatusAction id={row.id} kind={kind} status="submitted" expectedVersion={row.version} label="제출" />
+              <DocumentStatusAction id={row.id} kind={kind} status="cancelled" expectedVersion={row.version} label="취소" danger />
             </> : null}
-            {row.status === "submitted" ? <>{canApprove ? <DocumentStatusAction id={row.id} kind={kind} status="approved" label="승인" /> : null}{canWrite ? <><DocumentStatusAction id={row.id} kind={kind} status="draft" label="반려" /><DocumentStatusAction id={row.id} kind={kind} status="cancelled" label="취소" danger /></> : null}</> : null}
+            {row.status === "submitted" ? <>{canApprove ? <DocumentStatusAction id={row.id} kind={kind} status="approved" expectedVersion={row.version} label="승인" /> : null}{canWrite ? <><DocumentStatusAction id={row.id} kind={kind} status="draft" expectedVersion={row.version} label="반려" /><DocumentStatusAction id={row.id} kind={kind} status="cancelled" expectedVersion={row.version} label="취소" danger /></> : null}</> : null}
             {row.status === "approved" && canApprove ? <>
-              <DocumentStatusAction id={row.id} kind={kind} status="posted" label="확정" warehouseId={row.warehouse_id} warehouses={activeWarehouses} />
-              <DocumentStatusAction id={row.id} kind={kind} status="cancelled" label="취소" danger />
+              <DocumentStatusAction id={row.id} kind={kind} status="posted" expectedVersion={row.version} label="확정" warehouseId={row.warehouse_id} warehouses={activeWarehouses} />
+              <DocumentStatusAction id={row.id} kind={kind} status="cancelled" expectedVersion={row.version} label="취소" danger />
             </> : null}
             <a className="button small" href={`/api/v1/documents/${row.id}/print`} target="_blank" rel="noreferrer">PDF/인쇄</a>
             {row.status === "posted" ? <>{canWrite && nextDocumentKind(kind) ? <form action={convertDocumentAction}><input type="hidden" name="documentId" value={row.id} /><input type="hidden" name="kind" value={kind} /><button className="button small primary" type="submit">{conversionLabel(kind)}</button></form> : <span className="muted">처리 완료</span>}</> : null}

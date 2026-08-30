@@ -41,7 +41,13 @@ export async function transitionDocumentAction(_state: FormState, formData: Form
   if (!parsed.success) return { status: "error", message: parsed.error.issues[0]?.message ?? "입력값을 확인해 주세요." };
   try {
     const session = await requirePermission("documents:write");
-    await transitionDocument(session, parsed.data.documentId, parsed.data.nextStatus, parsed.data.warehouseId);
+    await transitionDocument(
+      session,
+      parsed.data.documentId,
+      parsed.data.nextStatus,
+      parsed.data.expectedVersion,
+      parsed.data.warehouseId,
+    );
     refreshDocuments(parsed.data.kind);
     return { status: "success", message: "문서 상태를 변경했습니다." };
   } catch (error) {

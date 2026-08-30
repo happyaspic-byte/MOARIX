@@ -44,15 +44,21 @@ function tmpRoot() {
     : tmpdir();
 }
 
-async function postThrough(documentId: string) {
-  await transitionDocument(session, documentId, "submitted");
-  await transitionDocument(session, documentId, "approved");
-  await transitionDocument(session, documentId, "posted");
+async function postThrough(documentId: string, startVersion = 1) {
+  await transitionDocument(session, documentId, "submitted", startVersion);
+  await transitionDocument(session, documentId, "approved", startVersion + 1);
+  await transitionDocument(session, documentId, "posted", startVersion + 2);
 }
 
 function onHand(itemId: string) {
   return listInventory(companyId).then((inventory) =>
     inventory.balances.find((row) => row.item_id === itemId && row.warehouse_id === warehouseId)?.on_hand ?? "0.0000",
+  );
+}
+
+function reserved(itemId: string) {
+  return listInventory(companyId).then((inventory) =>
+    inventory.balances.find((row) => row.item_id === itemId && row.warehouse_id === warehouseId)?.reserved ?? "0.0000",
   );
 }
 
@@ -183,9 +189,9 @@ describe("fulfillment documents post inventory", () => {
         taxRate: "10",
       }],
     } as CreateDocumentInput);
-    await transitionDocument(session, overdrawn.id, "submitted");
-    await transitionDocument(session, overdrawn.id, "approved");
-    await expect(transitionDocument(session, overdrawn.id, "posted")).rejects.toThrow("Negative stock");
+    await transitionDocument(session, overdrawn.id, "submitted", 1);
+    await transitionDocument(session, overdrawn.id, "approved", 2);
+    await expect(transitionDocument(session, overdrawn.id, "posted", 3)).rejects.toThrow("Negative stock");
 
     const detail = await getDocumentDetail(companyId, overdrawn.id, "shipment");
     expect(detail?.document.status).toBe("approved");
@@ -205,10 +211,10 @@ describe("fulfillment documents post inventory", () => {
     });
     await postThrough(order.id);
     const receipt = await convertDocument(session, order.id);
-    await transitionDocument(session, receipt.id, "submitted");
-    await transitionDocument(session, receipt.id, "approved");
+    await transitionDocument(session, receipt.id, "submitted", 1);
+    await transitionDocument(session, receipt.id, "approved", 2);
     const before = await onHand(trackedItemId);
-    await transitionDocument(session, receipt.id, "posted", warehouseId);
+    await transitionDocument(session, receipt.id, "posted", 3, warehouseId);
 
     const detail = await getDocumentDetail(companyId, receipt.id, "receipt");
     expect(detail?.document.warehouse_id).toBe(warehouseId);
@@ -256,9 +262,162 @@ describe("fulfillment documents post inventory", () => {
       discountRate: "0",
       taxRate: "10",
     });
-    await transitionDocument(session, missingWarehouse.id, "submitted");
-    await transitionDocument(session, missingWarehouse.id, "approved");
-    await expect(transitionDocument(session, missingWarehouse.id, "posted")).rejects.toThrow(/warehouse/i);
+    await transitionDocument(session, missingWarehouse.id, "submitted", 1);
+    await transitionDocument(session, missingWarehouse.id, "approved", 2);
+    await expect(transitionDocument(session, missingWarehouse.id, "posted", 3)).rejects.toThrow(/warehouse/i);
+  });
+
+  it("reserves tracked stock when a sales order is posted and consumes it on shipment", async () => {
+    const beforeSeed = await onHand(extraItemId);
+    await postInventoryMovement(session, {
+      warehouseId,
+      itemId: extraItemId,
+      movementType: "receipt",
+      quantity: "8",
+      unitCost: "2500",
+      reason: "합성 수주 예약 시드",
+      idempotencyKey: randomUUID(),
+    });
+    const afterSeed = await onHand(extraItemId);
+    expect(Number(afterSeed)).toBe(Number(beforeSeed) + 8);
+
+    const order = await createDocument(session, {
+      kind: "sales_order",
+      counterpartyId: customerId,
+      warehouseId,
+      issueDate: "2026-08-26",
+      lines: [{
+        itemId: extraItemId,
+        quantity: "3",
+        unitPrice: "4000",
+        discountRate: "0",
+        taxRate: "10",
+      }],
+    } as CreateDocumentInput);
+    await postThrough(order.id);
+
+    expect(await onHand(extraItemId)).toBe(afterSeed);
+    expect(await reserved(extraItemId)).toBe("3.0000");
+    const inventoryAfterOrder = await listInventory(companyId);
+    expect(inventoryAfterOrder.movements.find((row) => row.reference_number === order.number)).toMatchObject({
+      movement_type: "reservation",
+      sku: "SYN-PART-2",
+      quantity: "3.0000",
+    });
+
+    const shipment = await convertDocument(session, order.id);
+    await postThrough(shipment.id);
+    expect(await onHand(extraItemId)).toBe((Number(afterSeed) - 3).toFixed(4));
+    expect(await reserved(extraItemId)).toBe("0.0000");
+  });
+
+  it("does not consume another sales order reservation on a standalone shipment", async () => {
+    const before = await onHand(extraItemId);
+    const remainingReserved = await reserved(extraItemId);
+    const order = await createDocument(session, {
+      kind: "sales_order",
+      counterpartyId: customerId,
+      warehouseId,
+      issueDate: "2026-08-28",
+      lines: [{
+        itemId: extraItemId,
+        quantity: "2",
+        unitPrice: "4000",
+        discountRate: "0",
+        taxRate: "10",
+      }],
+    } as CreateDocumentInput);
+    await postThrough(order.id);
+    expect(await reserved(extraItemId)).toBe((Number(remainingReserved) + 2).toFixed(4));
+
+    const standalone = await createDocument(session, {
+      kind: "shipment",
+      counterpartyId: customerId,
+      warehouseId,
+      issueDate: "2026-08-28",
+      lines: [{
+        itemId: extraItemId,
+        quantity: "1",
+        unitPrice: "4000",
+        discountRate: "0",
+        taxRate: "10",
+      }],
+    } as CreateDocumentInput);
+    await postThrough(standalone.id);
+
+    expect(await onHand(extraItemId)).toBe((Number(before) - 1).toFixed(4));
+    expect(await reserved(extraItemId)).toBe((Number(remainingReserved) + 2).toFixed(4));
+  });
+
+  it("refuses to post a sales order that would reserve more than on-hand stock", async () => {
+    const order = await createDocument(session, {
+      kind: "sales_order",
+      counterpartyId: customerId,
+      warehouseId,
+      issueDate: "2026-08-27",
+      itemId: extraItemId,
+      quantity: "999",
+      unitPrice: "4000",
+      discountRate: "0",
+      taxRate: "10",
+    });
+    await transitionDocument(session, order.id, "submitted", 1);
+    await transitionDocument(session, order.id, "approved", 2);
+    await expect(transitionDocument(session, order.id, "posted", 3)).rejects.toThrow(/reserved stock/i);
+    const detail = await getDocumentDetail(companyId, order.id, "sales_order");
+    expect(detail?.document.status).toBe("approved");
+  });
+});
+
+describe("document transition version control", () => {
+  it("rejects a transition from a stale document version", async () => {
+    const created = await createDocument(session, {
+      kind: "quote",
+      counterpartyId: customerId,
+      itemId: trackedItemId,
+      issueDate: "2026-08-29",
+      quantity: "1",
+      unitPrice: "10000",
+      discountRate: "0",
+      taxRate: "10",
+    });
+
+    await transitionDocument(session, created.id, "submitted", 1);
+    await expect(transitionDocument(session, created.id, "approved", 1)).rejects.toThrow("Document version conflict");
+
+    const detail = await getDocumentDetail(companyId, created.id, "quote");
+    expect(detail?.document.status).toBe("submitted");
+    expect(detail?.document.version).toBe(2);
+  });
+
+  it("records version in the status-change audit trail", async () => {
+    const created = await createDocument(session, {
+      kind: "quote",
+      counterpartyId: customerId,
+      itemId: trackedItemId,
+      issueDate: "2026-08-30",
+      quantity: "1",
+      unitPrice: "10000",
+      discountRate: "0",
+      taxRate: "10",
+    });
+
+    await transitionDocument(session, created.id, "submitted", 1);
+
+    const audit = await withCompany(companyId, async (tx) => {
+      const result = await tx.query<{ before_data: unknown; after_data: unknown }>(
+        `SELECT before_data, after_data
+         FROM audit_logs
+         WHERE entity_id = $1 AND action = 'document.status_changed'
+         ORDER BY created_at DESC
+         LIMIT 1`,
+        [created.id],
+      );
+      return result.rows[0];
+    });
+
+    expect(audit?.before_data).toMatchObject({ status: "draft", version: 1 });
+    expect(audit?.after_data).toMatchObject({ status: "submitted", version: 2 });
   });
 });
 

@@ -12,6 +12,7 @@ export function DocumentStatusAction({
   id,
   kind,
   status,
+  expectedVersion,
   label,
   danger = false,
   warehouseId,
@@ -20,17 +21,19 @@ export function DocumentStatusAction({
   id: string;
   kind: DocumentKind;
   status: DocumentStatus;
+  expectedVersion: number;
   label: string;
   danger?: boolean;
   warehouseId?: string | null;
   warehouses?: WarehouseRow[];
 }) {
   const [state, action] = useActionState(transitionDocumentAction, initialFormState);
-  const choosesWarehouse = status === "posted" && (kind === "shipment" || kind === "receipt");
+  const choosesWarehouse = status === "posted" && (kind === "shipment" || kind === "receipt" || kind === "sales_order");
   return <form action={action} className="inline-action-form">
     <input type="hidden" name="documentId" value={id} />
     <input type="hidden" name="kind" value={kind} />
     <input type="hidden" name="nextStatus" value={status} />
+    <input type="hidden" name="expectedVersion" value={expectedVersion} />
     {choosesWarehouse ? <select name="warehouseId" defaultValue={warehouseId ?? ""} aria-label={`${label} 창고`} required><option value="" disabled>창고 선택</option>{warehouses.map((row) => <option value={row.id} key={row.id}>{row.code} · {row.name}</option>)}</select> : null}
     <SubmitButton className={`button small${danger ? " danger" : ""}`}>{label}</SubmitButton>
     <FormMessage state={state} />

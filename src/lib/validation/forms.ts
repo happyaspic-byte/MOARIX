@@ -131,6 +131,7 @@ export const documentTransitionSchema = z.object({
   documentId: z.uuid(),
   kind: z.enum(documentKinds),
   nextStatus: z.enum(documentStatuses),
+  expectedVersion: z.coerce.number().int().positive(),
   warehouseId: optionalUuid,
 });
 

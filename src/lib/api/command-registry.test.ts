@@ -103,6 +103,7 @@ describe("command registry", () => {
     const approveQuote = parseCommandInput(quoteTransition, {
       id: "Q-2026-0001",
       nextStatus: "approved",
+      expectedVersion: 2,
     });
     expect(() => assertCommandInputAccess(
       quoteTransition,

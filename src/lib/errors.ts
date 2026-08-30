@@ -7,7 +7,7 @@ export function publicError(error: unknown, fallback = "요청을 처리하지 �
     if (error.message.includes("Negative stock") || error.message.includes("Reserved stock")) {
       return error.message;
     }
-    if (error.message.includes("Warehouse is required")) return "출고·입고를 확정하려면 창고를 선택하세요.";
+    if (error.message.includes("Warehouse is required")) return "수주·출고·입고를 확정하려면 창고를 선택하세요.";
     if (error.message.includes("Driving log version conflict") || error.message.includes("Document version conflict")) {
       return "다른 사용자가 이 운행일지를 먼저 수정했습니다. 다시 불러오세요.".replace("운행일지", error.message.includes("Document") ? "문서" : "운행일지");
     }

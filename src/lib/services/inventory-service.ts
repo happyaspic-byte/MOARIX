@@ -60,7 +60,7 @@ export function listInventory(companyId: string) {
 export type InventoryMovementInput = {
   warehouseId: string;
   itemId: string;
-  movementType: Extract<MovementKind, "receipt" | "issue" | "adjustment">;
+  movementType: Extract<MovementKind, "receipt" | "issue" | "adjustment" | "reservation" | "release">;
   quantity: string;
   unitCost: string;
   reason: string;

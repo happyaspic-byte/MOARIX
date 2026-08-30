@@ -118,9 +118,9 @@ async function exerciseDomain() {
     notes: "런타임 견적 초안 수정 검증",
   });
   invariant(updatedDocument.version === 2, "Draft quote optimistic version did not advance");
-  await transitionDocument(session, document.id, "submitted");
-  await transitionDocument(session, document.id, "approved");
-  await transitionDocument(session, document.id, "posted");
+  await transitionDocument(session, document.id, "submitted", 2);
+  await transitionDocument(session, document.id, "approved", 3);
+  await transitionDocument(session, document.id, "posted", 4);
   const documents = await listDocuments(session.companyId, "quote");
   invariant(documents.rows.some((row) => row.id === document.id && row.status === "posted"), "Document workflow did not reach posted");
   const documentDetail = await getDocumentDetail(session.companyId, document.id, "quote");
