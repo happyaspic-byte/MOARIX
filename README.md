@@ -2,7 +2,7 @@
 
 MOARIX는 중소·중견 조직을 위한 멀티테넌트 영업·구매·재고 ERP이자 Stratus 고객 자산·지원·점검·장애 운영 시스템입니다. 특정 상용 제품의 소스나 화면을 복제하지 않고, 검증 가능한 업무 규칙과 감사 추적을 중심으로 독자 구현했습니다.
 
-현재 릴리스(0.6.0)는 실제 데이터를 저장하고 역할별 권한·테넌트 경계를 검사하는 운영 코어입니다. 외부 세금계산서·결제·메일 연동처럼 사업자별 계약이 필요한 기능은 [로드맵](docs/ROADMAP.md)에 분리되어 있습니다.
+현재 릴리스(0.6.1)는 실제 데이터를 저장하고 역할별 권한·테넌트 경계를 검사하는 운영 코어입니다. 외부 세금계산서·결제·메일 연동처럼 사업자별 계약이 필요한 기능은 [로드맵](docs/ROADMAP.md)에 분리되어 있습니다.
 
 ## 구현 범위
 
@@ -105,7 +105,9 @@ export ALLOW_INSECURE_COOKIES=true # 로컬 HTTP 전용
 docker compose up -d --build
 ```
 
-로컬 HTTP에서는 `COOKIE_SECURE=false`와 `ALLOW_INSECURE_COOKIES=true`를 함께 사용합니다. `ALLOW_INSECURE_COOKIES`는 테스트·로컬 전용이며, HTTPS 리버스 프록시 뒤의 운영 환경에서는 반드시 제거하거나 `false`로 두고 `COOKIE_SECURE=true`를 사용하세요.
+로컬 HTTP에서는 `COOKIE_SECURE=false`와 `ALLOW_INSECURE_COOKIES=true`를 함께 사용합니다. `ALLOW_INSECURE_COOKIES`는 테스트·로컬 전용이며, HTTPS 리버스 프록시 뒤의 운영 환경에서는 반드시 `false`로 두고 `COOKIE_SECURE=true`를 사용하세요.
+
+운영 빌드는 두 값을 하나의 명시적 모드로 검증합니다. HTTPS는 `COOKIE_SECURE=true`와 `ALLOW_INSECURE_COOKIES=false`, 신뢰하는 사설망의 직접 HTTP는 `COOKIE_SECURE=false`와 `ALLOW_INSECURE_COOKIES=true`만 허용합니다. 누락·오타·모순된 조합은 `/api/health`를 실패시켜 정상처럼 보이는 잘못된 배포를 차단합니다. 로그인 후 다시 로그인 화면으로 이동하면 HTTP 주소와 Secure 쿠키 정책이 충돌한 것이므로 값을 바로잡고 앱 컨테이너를 재배포하세요.
 
 최초 소유자 생성:
 
@@ -157,6 +159,7 @@ npm run test:privacy
 export LOCAL_DATABASE_PATH=/tmp/moarix-smoke/pglite
 export SESSION_SECRET=smoke-only-secret-with-at-least-32-characters
 export COOKIE_SECURE=false
+export ALLOW_INSECURE_COOKIES=true
 export SEED_DEMO_PASSWORD='local-smoke-password-at-least-12-chars'
 export SMOKE_PASSWORD="$SEED_DEMO_PASSWORD"
 npm run db:setup

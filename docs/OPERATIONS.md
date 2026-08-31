@@ -19,6 +19,8 @@
 
 응답에는 DB 주소, 자격증명, 내부 오류를 노출하지 않습니다.
 
+로그인 후 메뉴 이동 시 다시 로그인 화면으로 돌아가면 세션 쿠키 전송 방식을 확인합니다. 사설망 HTTP 직접 접속은 `COOKIE_SECURE=false`와 `ALLOW_INSECURE_COOKIES=true`, HTTPS 리버스 프록시는 `COOKIE_SECURE=true`와 `ALLOW_INSECURE_COOKIES=false`를 사용합니다. 이외 조합은 헬스체크가 `503`을 반환합니다. 환경 변수 변경 후 앱 컨테이너를 다시 생성하고 기존 사이트 쿠키를 지운 뒤 로그인합니다.
+
 ## 마이그레이션
 
 개발:
