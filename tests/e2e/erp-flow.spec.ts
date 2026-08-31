@@ -60,7 +60,16 @@ test("authenticates and keeps ERP navigation accessible", async ({ page }) => {
   await login(page);
   await expect(page.getByRole("heading", { level: 1 })).toContainText("업무 현황입니다");
   const sessionCookie = (await page.context().cookies()).find((cookie) => sessionCookieNames.has(cookie.name));
-  expect(sessionCookie).toMatchObject({ httpOnly: true, sameSite: "Lax" });
+  expect(sessionCookie).toMatchObject({
+    name: "moarix_session",
+    httpOnly: true,
+    secure: false,
+    sameSite: "Lax",
+  });
+
+  await page.getByRole("navigation", { name: "주 메뉴" }).getByRole("link", { name: "자산·지원 계약" }).click();
+  await expect(page).toHaveURL((url) => url.pathname === "/assets");
+  await expect(page.getByRole("heading", { level: 1, name: "Stratus 자산 운영" })).toBeVisible();
 
   const accessibility = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa"]).analyze();
   const critical = accessibility.violations.filter((violation) => violation.impact === "critical");

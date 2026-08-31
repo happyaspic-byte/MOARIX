@@ -4,6 +4,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import type { FormState } from "@/components/form-message";
 import { writeSessionCookie } from "@/lib/auth/cookies";
+import { hasSessionCookieTransportMismatch } from "@/lib/auth/current";
 import { authenticate } from "@/lib/auth/repository";
 import { safeInternalRedirect } from "@/lib/security/internal-redirect";
 import { hashSessionToken } from "@/lib/security/session-token";
@@ -20,6 +21,12 @@ export async function loginAction(_state: FormState, formData: FormData): Promis
 
   try {
     const requestHeaders = await headers();
+    if (hasSessionCookieTransportMismatch(requestHeaders)) {
+      return {
+        status: "error",
+        message: "현재 HTTP 주소에서는 보안 세션 쿠키를 유지할 수 없습니다. HTTPS로 접속하거나 서버의 HTTP 쿠키 허용 설정을 확인해 주세요.",
+      };
+    }
     const forwardedFor = requestHeaders.get("x-forwarded-for")?.split(",")[0]?.trim();
     const clientIp = forwardedFor || requestHeaders.get("x-real-ip")?.trim();
     const result = await authenticate(parsed.data.email, parsed.data.password, {

@@ -1,6 +1,6 @@
 {
   "name": "moarix",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "private": true,
   "type": "module",
   "description": "멀티테넌트 영업·구매·재고와 Stratus 자산·점검·서비스 운영 ERP",

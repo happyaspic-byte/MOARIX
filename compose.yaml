@@ -49,8 +49,8 @@ services:
       DATABASE_USER: moarix_app
       DATABASE_PASSWORD: ${DATABASE_APP_PASSWORD:?Set DATABASE_APP_PASSWORD to a different strong unique password}
       SESSION_SECRET: ${SESSION_SECRET:?Set SESSION_SECRET to at least 32 random characters}
-      COOKIE_SECURE: ${COOKIE_SECURE:?Set COOKIE_SECURE=true for an HTTPS deployment}
-      ALLOW_INSECURE_COOKIES: ${ALLOW_INSECURE_COOKIES:-false}
+      COOKIE_SECURE: ${COOKIE_SECURE:?Set true for HTTPS or false only for trusted LAN HTTP}
+      ALLOW_INSECURE_COOKIES: ${ALLOW_INSECURE_COOKIES:?Set false for HTTPS or true only for trusted LAN HTTP}
     ports:
       - "${PORT:-3000}:3000"
     command: ["node", "server.js"]

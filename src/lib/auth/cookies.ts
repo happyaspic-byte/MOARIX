@@ -1,11 +1,12 @@
 import { cookies } from "next/headers";
-import { secureCookies, sessionCookieName } from "./current";
+import { sessionCookiePolicy } from "./current";
 
 export async function writeSessionCookie(token: string, expiresAt: Date) {
   const store = await cookies();
-  store.set(sessionCookieName(), token, {
+  const policy = sessionCookiePolicy();
+  store.set(policy.name, token, {
     httpOnly: true,
-    secure: secureCookies(),
+    secure: policy.secure,
     sameSite: "lax",
     path: "/",
     expires: expiresAt,
@@ -15,7 +16,6 @@ export async function writeSessionCookie(token: string, expiresAt: Date) {
 
 export async function deleteSessionCookie() {
   const store = await cookies();
-  store.delete(sessionCookieName());
   store.delete("__Host-moarix_session");
   store.delete("moarix_session");
 }

@@ -22,6 +22,7 @@ jobs:
       LOCAL_DATABASE_PATH: /tmp/moarix-ci-${{ github.run_id }}/pglite
       SESSION_SECRET: ci-only-session-secret-with-at-least-32-characters
       COOKIE_SECURE: "false"
+      ALLOW_INSECURE_COOKIES: "true"
       SEED_DEMO_EMAIL: admin@moarix.local
       SEED_DEMO_PASSWORD: Moarix-CI-Password-42!
       SMOKE_PASSWORD: Moarix-CI-Password-42!
@@ -31,6 +32,12 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v5
+
+      - name: Validate Compose configuration
+        env:
+          POSTGRES_PASSWORD: Moarix-CI-Owner-Password-42!
+          DATABASE_APP_PASSWORD: Moarix-CI-App-Password-42!
+        run: docker compose config --quiet
 
       - name: Set up Node.js
         uses: actions/setup-node@v5
@@ -179,6 +186,7 @@ jobs:
             --env DATABASE_URL=postgresql://moarix_app:MoarixAppCI42Secure@127.0.0.1:5432/moarix \
             --env SESSION_SECRET=postgres-security-ci-session-secret-42 \
             --env COOKIE_SECURE=false \
+            --env ALLOW_INSECURE_COOKIES=true \
             moarix:postgres-security)
           cleanup() {
             docker logs "$container_id" || true

@@ -1,4 +1,5 @@
 import { getDatabase } from "@/lib/db/client";
+import { sessionCookiePolicy } from "@/lib/auth/current";
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +16,7 @@ const runtimeReadTables = [
 
 export async function GET() {
   try {
+    sessionCookiePolicy();
     const database = await getDatabase();
     if (process.env.DATABASE_DRIVER === "postgres") {
       const role = await database.query<{ rolsuper: boolean; rolbypassrls: boolean }>(
@@ -49,6 +51,7 @@ export async function GET() {
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch {
+    console.error("[health] runtime readiness check failed");
     return Response.json(
       { status: "error", service: "moarix" },
       { status: 503, headers: { "Cache-Control": "no-store" } },
