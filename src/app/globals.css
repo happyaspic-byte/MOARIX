@@ -146,7 +146,7 @@ textarea { min-height: 88px; resize: vertical; }
 .button.wide { width: 100%; min-height: 46px; }
 .icon-button { display: grid; width: 38px; height: 38px; place-items: center; border: 1px solid var(--line); border-radius: 9px; background: white; color: var(--ink-soft); }
 .icon-button:hover { background: var(--surface-soft); color: var(--ink); }
-.form-message { margin: 0; border-radius: 8px; padding: 10px 12px; font-size: .8rem; line-height: 1.5; }
+.form-message { margin: 0; border-radius: 8px; padding: 10px 12px; font-size: .8rem; line-height: 1.5; white-space: pre-line; }
 .form-message.error { border: 1px solid #efc0b9; background: #fff6f4; color: var(--danger); }
 .form-message.success { border: 1px solid #b7ddd2; background: #f0faf7; color: var(--success); }
 .helper-text { color: var(--ink-faint); font-size: .74rem; font-weight: 500; }
@@ -530,7 +530,6 @@ textarea { min-height: 88px; resize: vertical; }
   .contract-card dl { grid-template-columns: 1fr; }
   .checklist-inline li { grid-template-columns: minmax(0, 1fr) auto; }
   .checklist-inline li small { grid-column: 1 / -1; text-align: left; }
-  .topology-chassis { grid-template-columns: 1fr; }
   .topology-board { padding: 14px; }
 }
 
@@ -592,6 +591,14 @@ textarea { min-height: 88px; resize: vertical; }
 .document-lines { display: grid; gap: 12px; }
 .document-line-row { display: grid; grid-template-columns: minmax(180px, 2fr) repeat(4, minmax(90px, 1fr)) auto; gap: 8px; border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
 .document-line-row legend { font-weight: 700; font-size: 0.78rem; }
+
+/* Keep the mobile topology override after the desktop grid declaration. */
+@media (max-width: 640px) {
+  .topology-chassis { grid-template-columns: minmax(0, 1fr); }
+  .topology-board, .topo-node, .topo-mid { min-width: 0; }
+  .topo-node dl div { gap: 8px; flex-wrap: wrap; }
+  .topo-node dd, .topo-alink small { overflow-wrap: anywhere; }
+}
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }

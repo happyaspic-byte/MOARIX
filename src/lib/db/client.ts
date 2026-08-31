@@ -96,13 +96,21 @@ class LocalDatabase implements Database {
 async function createDatabase(): Promise<Database> {
   const driver = process.env.DATABASE_DRIVER ?? "local";
   if (driver === "postgres") {
-    const connectionString = process.env.DATABASE_URL;
-    if (!connectionString) {
-      throw new Error("DATABASE_URL is required when DATABASE_DRIVER=postgres");
-    }
+    const connection = process.env.DATABASE_HOST
+      ? {
+          host: process.env.DATABASE_HOST,
+          port: Number(process.env.DATABASE_PORT ?? 5432),
+          database: process.env.DATABASE_NAME ?? "moarix",
+          user: process.env.DATABASE_USER,
+          password: process.env.DATABASE_PASSWORD,
+        }
+      : process.env.DATABASE_URL
+        ? { connectionString: process.env.DATABASE_URL }
+        : null;
+    if (!connection) throw new Error("DATABASE_URL or DATABASE_HOST is required when DATABASE_DRIVER=postgres");
     return new PostgresDatabase(
       new Pool({
-        connectionString,
+        ...connection,
         max: Number(process.env.DATABASE_POOL_MAX ?? 10),
         statement_timeout: 15_000,
         idle_in_transaction_session_timeout: 15_000,

@@ -7,6 +7,10 @@ const secureCookieName = "__Host-moarix_session";
 const localCookieName = "moarix_session";
 
 export function secureCookies() {
+  // Production must fail closed. Local HTTP smoke/E2E tests may explicitly opt
+  // into insecure cookies, but an accidental COOKIE_SECURE=false cannot weaken
+  // a real deployment.
+  if (process.env.NODE_ENV === "production" && process.env.ALLOW_INSECURE_COOKIES !== "true") return true;
   if (process.env.COOKIE_SECURE !== undefined) return process.env.COOKIE_SECURE === "true";
   return process.env.NODE_ENV === "production";
 }
@@ -17,7 +21,8 @@ export function sessionCookieName() {
 
 export async function readSessionToken() {
   const store = await cookies();
-  return store.get(secureCookieName)?.value ?? store.get(localCookieName)?.value ?? null;
+  if (secureCookies()) return store.get(secureCookieName)?.value ?? null;
+  return store.get(localCookieName)?.value ?? store.get(secureCookieName)?.value ?? null;
 }
 
 export async function getCurrentSession() {

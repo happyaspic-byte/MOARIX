@@ -61,6 +61,8 @@ describe("asset-import-service", () => {
       expect(result.errors.length).toBeGreaterThan(0);
       expect(result.errors.some((e) => e.field === "assetTag")).toBe(true);
       expect(result.errors.some((e) => e.field === "productFamily")).toBe(true);
+      expect(result.errors.some((e) => e.field === "customerCode")).toBe(true);
+      expect(result.errors.some((e) => e.field === "siteCode")).toBe(true);
     });
 
     it("validates date formats YYYY-MM-DD", () => {

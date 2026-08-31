@@ -7,6 +7,10 @@ import type { Role } from "@/lib/security/permissions";
 const SESSION_HOURS = 12;
 const LOGIN_WINDOW_MINUTES = 15;
 const MAX_LOGIN_ATTEMPTS = 5;
+const MAX_IP_LOGIN_ATTEMPTS = 30;
+const DUMMY_PASSWORD_HASH = "$2b$12$IZ3QaM.E3aLLlqBXaxapPu5ytlDsRCbZHrC1/8pJRT/P0ROCxxL6G";
+
+type LoginRateKey = { hash: string; maxAttempts: number };
 
 async function isLoginBlocked(identifierHash: string) {
   const database = await getDatabase();
@@ -17,9 +21,14 @@ async function isLoginBlocked(identifierHash: string) {
   return result.rows[0]?.blocked ?? false;
 }
 
-async function recordLoginFailure(identifierHash: string) {
+async function recordLoginFailure(identifierHash: string, maxAttempts: number) {
   const database = await getDatabase();
   await database.transaction(async (tx) => {
+    await tx.query(
+      `DELETE FROM login_attempts
+       WHERE updated_at < now() - interval '1 day'
+          OR (blocked_until IS NOT NULL AND blocked_until < now() - interval '1 hour')`,
+    );
     await tx.query(
       `INSERT INTO login_attempts (identifier_hash, attempt_count)
        VALUES ($1, 0)
@@ -41,9 +50,18 @@ async function recordLoginFailure(identifierHash: string) {
            blocked_until = CASE WHEN $2::integer >= $4::integer THEN now() + make_interval(mins => $5::integer) ELSE NULL END,
            updated_at = now()
        WHERE identifier_hash = $1`,
-      [identifierHash, nextCount, current?.window_expired ?? false, MAX_LOGIN_ATTEMPTS, LOGIN_WINDOW_MINUTES],
+      [identifierHash, nextCount, current?.window_expired ?? false, maxAttempts, LOGIN_WINDOW_MINUTES],
     );
   });
+}
+
+async function clearLoginAttempts(rateKeys: LoginRateKey[]) {
+  if (rateKeys.length === 0) return;
+  const database = await getDatabase();
+  await database.query(
+    "DELETE FROM login_attempts WHERE identifier_hash = ANY($1::char(64)[])",
+    [rateKeys.map((key) => key.hash)],
+  );
 }
 
 type LoginRow = {
@@ -76,15 +94,22 @@ export async function authenticate(
   const database = await getDatabase();
   const normalizedEmail = email.trim().toLowerCase();
   const identifierHash = hashSessionToken(`login:${normalizedEmail}`);
-  if (await isLoginBlocked(identifierHash)) return null;
+  const rateKeys: LoginRateKey[] = [{ hash: identifierHash, maxAttempts: MAX_LOGIN_ATTEMPTS }];
+  if (metadata.ipHash) {
+    rateKeys.push({ hash: hashSessionToken(`login-ip:${metadata.ipHash}`), maxAttempts: MAX_IP_LOGIN_ATTEMPTS });
+  }
+  if (await Promise.all(rateKeys.map((key) => isLoginBlocked(key.hash))).then((blocked) => blocked.some(Boolean))) return null;
   const result = await database.query<LoginRow>(
     "SELECT * FROM public.moarix_login_lookup($1)",
     [normalizedEmail],
   );
 
   const account = result.rows[0];
-  if (!account || !(await verifyPassword(password, account.password_hash))) {
-    await recordLoginFailure(identifierHash);
+  const passwordMatches = await verifyPassword(password, account?.password_hash ?? DUMMY_PASSWORD_HASH);
+  if (!account || !passwordMatches) {
+    // Keep writes on one connection at a time. This avoids lock races in
+    // PostgreSQL and makes the rate-limit counters deterministic under load.
+    for (const key of rateKeys) await recordLoginFailure(key.hash, key.maxAttempts);
     return null;
   }
 
@@ -110,6 +135,7 @@ export async function authenticate(
       ],
     );
   });
+  await clearLoginAttempts(rateKeys);
 
   return { token, expiresAt };
 }

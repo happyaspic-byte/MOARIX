@@ -160,6 +160,17 @@ export interface CsvColumnDef<T = unknown> {
   format?: (value: unknown, row: T) => string;
 }
 
+const spreadsheetFormulaPrefix = /^\s*[=+\-@]/u;
+
+/**
+ * Prevent spreadsheet applications from interpreting exported user data as a
+ * formula. A leading apostrophe is rendered as text by Excel/LibreOffice and
+ * keeps the original value visible without evaluating it.
+ */
+export function neutralizeSpreadsheetFormula(value: string) {
+  return spreadsheetFormulaPrefix.test(value) ? `'${value}` : value;
+}
+
 /**
  * Serializes data array to UTF-8 CSV string with BOM for Excel compatibility.
  */
@@ -167,9 +178,10 @@ export function serializeCsv<T extends Record<string, unknown>>(
   columns: CsvColumnDef<T>[],
   rows: T[]
 ): string {
-  const escapeField = (val: unknown): string => {
+  const escapeField = (val: unknown, protectFormula = false): string => {
     if (val === null || val === undefined) return `""`;
-    const str = String(val);
+    const raw = String(val);
+    const str = protectFormula ? neutralizeSpreadsheetFormula(raw) : raw;
     return `"${str.replace(/"/g, '""')}"`;
   };
 
@@ -179,7 +191,7 @@ export function serializeCsv<T extends Record<string, unknown>>(
       .map((col) => {
         const rawValue = (row as Record<string, unknown>)[col.key as string];
         const formatted = col.format ? col.format(rawValue, row) : rawValue;
-        return escapeField(formatted);
+        return escapeField(formatted, true);
       })
       .join(",")
   );

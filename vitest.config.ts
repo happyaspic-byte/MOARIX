@@ -22,7 +22,16 @@ export default defineConfig({
     coverage: {
       provider: "v8",
       reporter: ["text", "json-summary"],
-      include: ["src/lib/domain/**/*.ts", "src/lib/security/**/*.ts"],
+      // Keep the gate focused on deterministic domain and security paths, plus
+      // the authentication/session and import/export boundaries that are easy
+      // to regress without a browser.
+      include: [
+        "src/lib/domain/**/*.ts",
+        "src/lib/security/**/*.ts",
+        "src/lib/auth/api-token.ts",
+        "src/lib/auth/current.ts",
+        "src/lib/csv/csv-engine.ts",
+      ],
       thresholds: {
         lines: 85,
         functions: 85,

@@ -101,7 +101,8 @@ try {
       "maintenance_inspections", "service_case_activities", "service_case_attachments",
       "asset_nodes", "asset_network_interfaces", "asset_virtual_machines",
       "asset_support_contracts", "asset_licenses", "inspection_check_items",
-      "service_case_watchers", "driving_logs",
+      "service_case_watchers", "driving_logs", "settlements",
+      "settlement_allocations", "outbound_messages",
     ];
     const tenantGrants = await database.query(
       `SELECT format('GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.%I TO %I', table_name, $1::text) AS sql
@@ -124,6 +125,7 @@ try {
          format('GRANT EXECUTE ON FUNCTION public.moarix_touch_session(uuid) TO %I', $1::text),
          format('GRANT EXECUTE ON FUNCTION public.moarix_revoke_session(text) TO %I', $1::text),
          format('GRANT EXECUTE ON FUNCTION public.moarix_revoke_user_sessions(uuid, uuid) TO %I', $1::text),
+         format('GRANT EXECUTE ON FUNCTION public.moarix_list_company_sessions(uuid) TO %I', $1::text),
          format('GRANT EXECUTE ON FUNCTION public.moarix_find_api_token(text) TO %I', $1::text)
        ] AS statements`,
       [appUser],

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireSession } from "@/lib/auth/current";
+import { getCurrentSession } from "@/lib/auth/current";
 import { documentKindLabels } from "@/lib/services/documents";
 import { getDocumentDetail } from "@/lib/services/documents";
 import { generateDocumentHtml } from "@/lib/services/document-print";
@@ -8,7 +8,8 @@ export const dynamic = "force-dynamic";
 
 export async function GET(_request: Request, context: { params: Promise<{ documentId: string }> }) {
   try {
-    const session = await requireSession();
+    const session = await getCurrentSession();
+    if (!session) return new NextResponse("Unauthorized", { status: 401 });
     const { documentId } = await context.params;
     const detail = await getDocumentDetail(session.companyId, documentId);
     if (!detail) return new NextResponse("문서를 찾을 수 없습니다.", { status: 404 });
@@ -32,6 +33,6 @@ export async function GET(_request: Request, context: { params: Promise<{ docume
     });
     return new NextResponse(html, { headers: { "Content-Type": "text/html; charset=utf-8" } });
   } catch {
-    return new NextResponse("인쇄본을 만들 수 없습니다.", { status: 401 });
+    return new NextResponse("인쇄본을 만들 수 없습니다.", { status: 500 });
   }
 }

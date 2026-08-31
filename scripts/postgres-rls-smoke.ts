@@ -93,6 +93,10 @@ try {
     checkItemId: string;
     watcherId: string;
     drivingLogId: string;
+    invoiceId: string;
+    settlementId: string;
+    allocationId: string;
+    outboundMessageId: string;
   };
 
   const createTenantAsset = (
@@ -114,6 +118,10 @@ try {
       checkItemId: randomUUID(),
       watcherId: randomUUID(),
       drivingLogId: randomUUID(),
+      invoiceId: randomUUID(),
+      settlementId: randomUUID(),
+      allocationId: randomUUID(),
+      outboundMessageId: randomUUID(),
     };
 
     await tx.query(
@@ -219,6 +227,32 @@ try {
         userId,
       ],
     );
+    await tx.query(
+      `INSERT INTO documents
+         (id, company_id, kind, number, counterparty_id, status, issue_date, due_date,
+          grand_total, created_by)
+       VALUES ($1, $2, 'invoice', $3, $4, 'posted', CURRENT_DATE, CURRENT_DATE,
+               100, $5)`,
+      [fixture.invoiceId, companyId, `RLS-INVOICE-${label}-${suffix}`, counterpartyId, userId],
+    );
+    await tx.query(
+      `INSERT INTO settlements
+         (id, company_id, counterparty_id, direction, amount, settled_on, method, created_by)
+       VALUES ($1, $2, $3, 'receipt', 25, CURRENT_DATE, 'bank', $4)`,
+      [fixture.settlementId, companyId, counterpartyId, userId],
+    );
+    await tx.query(
+      `INSERT INTO settlement_allocations
+         (id, company_id, settlement_id, document_id, amount)
+       VALUES ($1, $2, $3, $4, 25)`,
+      [fixture.allocationId, companyId, fixture.settlementId, fixture.invoiceId],
+    );
+    await tx.query(
+      `INSERT INTO outbound_messages
+         (id, company_id, to_address, subject, body, created_by)
+       VALUES ($1, $2, $3, 'Synthetic outbound message', 'Synthetic queued body', $4)`,
+      [fixture.outboundMessageId, companyId, `notify-${label}-${suffix}@example.invalid`, userId],
+    );
     return fixture;
   });
 
@@ -247,6 +281,9 @@ try {
     ["inspection_check_items", fixtureA.checkItemId, fixtureB.checkItemId],
     ["service_case_watchers", fixtureA.watcherId, fixtureB.watcherId],
     ["driving_logs", fixtureA.drivingLogId, fixtureB.drivingLogId],
+    ["settlements", fixtureA.settlementId, fixtureB.settlementId],
+    ["settlement_allocations", fixtureA.allocationId, fixtureB.allocationId],
+    ["outbound_messages", fixtureA.outboundMessageId, fixtureB.outboundMessageId],
   ] as const;
   for (const [tableName, expectedId, hiddenId] of newTenantTables) {
     const visible = await withCompany(companyA, (tx) => tx.query<{ id: string }>(
@@ -258,6 +295,50 @@ try {
       `${tableName} did not enforce tenant read isolation`,
     );
   }
+
+  let overAllocationRejected = false;
+  try {
+    await withCompany(companyA, async (tx) => {
+      const settlementId = randomUUID();
+      await tx.query(
+        `INSERT INTO settlements
+           (id, company_id, counterparty_id, direction, amount, settled_on, method, created_by)
+         VALUES ($1, $2, $3, 'receipt', 80, CURRENT_DATE, 'bank', $4)`,
+        [settlementId, companyA, counterpartyA, userId],
+      );
+      await tx.query(
+        `INSERT INTO settlement_allocations
+           (id, company_id, settlement_id, document_id, amount)
+         VALUES ($1, $2, $3, $4, 80)`,
+        [randomUUID(), companyA, settlementId, fixtureA.invoiceId],
+      );
+    });
+  } catch (error) {
+    overAllocationRejected = error instanceof Error && /exceeds the document total/i.test(error.message);
+  }
+  invariant(overAllocationRejected, "Settlement allocation trigger allowed an over-allocation");
+
+  let settlementOverAllocationRejected = false;
+  try {
+    await withCompany(companyA, async (tx) => {
+      const settlementId = randomUUID();
+      await tx.query(
+        `INSERT INTO settlements
+           (id, company_id, counterparty_id, direction, amount, settled_on, method, created_by)
+         VALUES ($1, $2, $3, 'receipt', 10, CURRENT_DATE, 'bank', $4)`,
+        [settlementId, companyA, counterpartyA, userId],
+      );
+      await tx.query(
+        `INSERT INTO settlement_allocations
+           (id, company_id, settlement_id, document_id, amount)
+         VALUES ($1, $2, $3, $4, 11)`,
+        [randomUUID(), companyA, settlementId, fixtureA.invoiceId],
+      );
+    });
+  } catch (error) {
+    settlementOverAllocationRejected = error instanceof Error && /settlement amount/i.test(error.message);
+  }
+  invariant(settlementOverAllocationRejected, "Settlement allocation exceeded the settlement amount");
 
   await owner.query(
     "UPDATE maintenance_inspections SET status = 'completed', completed_at = now() WHERE id = $1",
@@ -453,6 +534,14 @@ try {
   invariant(
     firstSession?.userId === userId && firstSession.companyId === companyA,
     "Real session lookup did not restore the authenticated tenant context",
+  );
+  const listedSessions = await withCompany(companyA, (tx) => tx.query<{ session_id: string }>(
+    "SELECT session_id FROM public.moarix_list_company_sessions($1)",
+    [companyA],
+  ));
+  invariant(
+    listedSessions.rows.some((row) => row.session_id === firstSession.sessionId),
+    "Restricted application role could not execute the company session administration function",
   );
 
   await database.transaction(async (tx) => {

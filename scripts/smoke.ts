@@ -423,7 +423,7 @@ async function exerciseHttp(
   const nextBinary = path.join(process.cwd(), "node_modules", "next", "dist", "bin", "next");
   const child = spawn(process.execPath, [nextBinary, "start", "-H", "127.0.0.1", "-p", String(port)], {
     cwd: process.cwd(),
-    env: { ...process.env, NODE_ENV: "production", COOKIE_SECURE: "false" },
+    env: { ...process.env, NODE_ENV: "production", COOKIE_SECURE: "false", ALLOW_INSECURE_COOKIES: "true" },
     stdio: ["ignore", "pipe", "pipe"],
   });
   let output = "";

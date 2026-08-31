@@ -6,6 +6,7 @@ import type { FormState } from "@/components/form-message";
 import { writeSessionCookie } from "@/lib/auth/cookies";
 import { authenticate } from "@/lib/auth/repository";
 import { safeInternalRedirect } from "@/lib/security/internal-redirect";
+import { hashSessionToken } from "@/lib/security/session-token";
 import { loginSchema } from "@/lib/validation/forms";
 
 export async function loginAction(_state: FormState, formData: FormData): Promise<FormState> {
@@ -19,8 +20,11 @@ export async function loginAction(_state: FormState, formData: FormData): Promis
 
   try {
     const requestHeaders = await headers();
+    const forwardedFor = requestHeaders.get("x-forwarded-for")?.split(",")[0]?.trim();
+    const clientIp = forwardedFor || requestHeaders.get("x-real-ip")?.trim();
     const result = await authenticate(parsed.data.email, parsed.data.password, {
       userAgent: requestHeaders.get("user-agent") ?? undefined,
+      ipHash: clientIp ? hashSessionToken(`client-ip:${clientIp}`) : undefined,
     });
     if (!result) {
       await new Promise((resolve) => setTimeout(resolve, 300));
