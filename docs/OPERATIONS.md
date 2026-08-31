@@ -4,16 +4,18 @@
 
 1. 운영 PostgreSQL의 마이그레이션 소유자와 `NOSUPERUSER NOBYPASSRLS` 애플리케이션 계정을 분리합니다.
 2. `SESSION_SECRET`을 비밀 관리 시스템에서 생성하고 환경별로 분리합니다.
-3. HTTPS 종단과 `COOKIE_SECURE=true`를 확인합니다.
+3. HTTPS 종단과 `COOKIE_SECURE=true`를 확인하고 `ALLOW_INSECURE_COOKIES`는 비활성화합니다.
 4. 마이그레이션을 스테이징 데이터 사본에 먼저 적용합니다.
 5. 백업을 만들고 실제 복구 시간을 측정합니다.
 
 ## 헬스체크
 
-`GET /api/health`는 인증 없이 DB 연결을 확인합니다.
+`GET /api/health`는 인증 없이 DB 연결·업무 테이블 읽기 권한·PostgreSQL 런타임 역할을 확인합니다. PostgreSQL에서는 `rolsuper=false`, `rolbypassrls=false`가 아니거나 마이그레이션된 업무 테이블 권한이 빠져 있으면 의도적으로 `503`을 반환합니다.
 
 - `200 { "status": "ok" }`: 요청 처리 가능
 - `503 { "status": "error" }`: DB 연결 또는 초기화 확인 필요
+
+기존 `deploy/synology` 브랜치처럼 앱 컨테이너가 PostgreSQL 소유자/슈퍼유저로 연결되면 헬스체크가 실패합니다. 해당 배포를 계속 사용해야 한다면 먼저 최신 `main`의 `migrate`/`app` 분리 구성으로 전환하고, 데이터 백업·복구 리허설과 `npm run test:rls`를 완료하세요. 소유자 연결을 앱에 직접 전달하지 않습니다.
 
 응답에는 DB 주소, 자격증명, 내부 오류를 노출하지 않습니다.
 
@@ -26,6 +28,8 @@ npm run db:migrate
 ```
 
 Compose의 일회성 `migrate` 서비스는 DB 소유자로 `scripts/migrate-runtime.mjs`를 실행한 뒤 제한된 `moarix_app` 역할과 권한을 준비합니다. 기본 애플리케이션 이미지 명령은 서버만 시작하며 마이그레이션을 실행하지 않습니다. 앱 컨테이너에는 소유자 자격증명을 전달하지 않습니다. 적용된 파일은 `schema_migrations`에 기록되며 같은 마이그레이션을 다시 실행하지 않습니다. 이미 배포된 SQL 파일은 수정하지 말고 새 번호의 파일을 추가합니다.
+
+`020_settlement_integrity.sql`은 정산 배부를 문서·거래처·입출금 방향과 연결하고, 문서 및 정산 금액을 초과하는 배부를 거부합니다. 기존 정산 데이터를 업그레이드할 때는 실패한 배부가 없는지 먼저 확인한 뒤 스테이징에서 마이그레이션을 실행합니다.
 
 배포 후 역할을 확인합니다.
 

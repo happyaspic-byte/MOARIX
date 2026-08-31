@@ -5,6 +5,7 @@ const baseURL = process.env.E2E_BASE_URL ?? `http://127.0.0.1:${port}`;
 
 export default defineConfig({
   testDir: "./tests/e2e",
+  forbidOnly: Boolean(process.env.CI),
   fullyParallel: false,
   workers: 1,
   retries: process.env.CI ? 1 : 0,
@@ -26,6 +27,7 @@ export default defineConfig({
     env: {
       ...process.env,
       COOKIE_SECURE: "false",
+      ALLOW_INSECURE_COOKIES: "true",
       HOSTNAME: "127.0.0.1",
       PORT: String(port),
     },

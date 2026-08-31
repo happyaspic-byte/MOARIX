@@ -66,8 +66,8 @@ const assetImportRowSchema = z.object({
   managementIp: z.string().trim().max(100).optional().or(z.literal("")),
   serialNumber: z.string().trim().max(100).optional().or(z.literal("")),
   status: z.enum(["active", "maintenance", "retired"]).default("active"),
-  customerCode: z.string().trim().max(50).optional().or(z.literal("")),
-  siteCode: z.string().trim().max(50).optional().or(z.literal("")),
+  customerCode: z.string().trim().min(1, "고객사코드는 필수입니다.").max(50),
+  siteCode: z.string().trim().min(1, "사업장코드는 필수입니다.").max(50),
   businessSystem: z.string().trim().max(120).optional().or(z.literal("")),
   environment: z.enum(["production", "staging", "test", "development", "other"]).default("production"),
   hardwareVendor: z.string().trim().max(100).optional().or(z.literal("")),
@@ -307,10 +307,27 @@ export interface BulkImportSummary {
   errors: RowValidationError[];
 }
 
+export class AssetImportValidationError extends Error {
+  constructor(public readonly errors: RowValidationError[]) {
+    super("자산 CSV 매핑 검증에 실패했습니다.");
+    this.name = "AssetImportValidationError";
+  }
+}
+
+function normalizeLookup(value: string) {
+  return value.trim().toLowerCase();
+}
+
+function findUniqueLookup<T extends { code: string; name: string }>(rows: T[], value: string) {
+  const normalized = normalizeLookup(value);
+  return rows.filter((row) => normalizeLookup(row.code) === normalized || normalizeLookup(row.name) === normalized);
+}
+
 /**
  * Executes multi-row Asset Import inside a company transaction:
- * - Resolves customer & site by code or defaults to primary active customer
- * - Checks existing asset by asset_tag or vendor_asset_id
+ * - Resolves customer & site by exact code or exact name
+ * - Rejects incomplete/ambiguous mappings before writing any row
+ * - Checks existing asset by asset_tag and vendor_asset_id without ambiguous LIMIT 1 matching
  * - Updates existing asset if found; Inserts new asset if not
  * - Writes audit log
  */
@@ -329,68 +346,106 @@ export async function bulkImportAssets(
       [session.companyId]
     );
 
-    const defaultCustomer = customers.rows[0];
-    if (!defaultCustomer) {
+    if (customers.rows.length === 0) {
       throw new Error("등록된 활성 고객사가 없습니다. 거래처를 먼저 등록하세요.");
     }
 
-    const defaultSiteForCustomer = (customerId: string) => {
-      return sites.rows.find((s) => s.counterparty_id === customerId);
-    };
+    const errors: RowValidationError[] = [];
+    const prepared: Array<{
+      item: BulkImportAssetItem;
+      targetCustomerId: string;
+      targetSiteId: string;
+      existingId: string | null;
+    }> = [];
+    const seenAssetTags = new Map<string, number>();
+    const seenVendorIds = new Map<string, number>();
+
+    // Preflight every row. No database write is allowed until every mapping and identity is unambiguous.
+    for (const item of items) {
+      const customerMatches = findUniqueLookup(customers.rows, item.customerCode);
+      if (customerMatches.length !== 1) {
+        errors.push({
+          lineNumber: item.lineNumber,
+          field: "customerCode",
+          message: customerMatches.length === 0
+            ? `고객사 '${item.customerCode}'를 찾을 수 없습니다.`
+            : `고객사 '${item.customerCode}'가 여러 건과 일치합니다. 고객사 코드를 사용하세요.`,
+        });
+        continue;
+      }
+      const targetCustomerId = customerMatches[0]!.id;
+      const siteMatches = sites.rows.filter((site) => site.counterparty_id === targetCustomerId);
+      const matchingSites = findUniqueLookup(siteMatches, item.siteCode);
+      if (matchingSites.length !== 1) {
+        errors.push({
+          lineNumber: item.lineNumber,
+          field: "siteCode",
+          message: matchingSites.length === 0
+            ? `고객사 '${item.customerCode}'에서 사업장 '${item.siteCode}'를 찾을 수 없습니다.`
+            : `사업장 '${item.siteCode}'가 여러 건과 일치합니다. 사업장 코드를 사용하세요.`,
+        });
+        continue;
+      }
+      const targetSiteId = matchingSites[0]!.id;
+
+      const normalizedTag = normalizeLookup(item.assetTag);
+      const priorTagLine = seenAssetTags.get(normalizedTag);
+      if (priorTagLine !== undefined) {
+        errors.push({
+          lineNumber: item.lineNumber,
+          field: "assetTag",
+          message: `자산 태그가 ${priorTagLine}행과 중복됩니다. 한 번에 하나의 행만 가져오세요.`,
+        });
+        continue;
+      }
+      seenAssetTags.set(normalizedTag, item.lineNumber);
+      const normalizedVendorId = item.vendorAssetId ? normalizeLookup(item.vendorAssetId) : null;
+      if (normalizedVendorId) {
+        const priorVendorLine = seenVendorIds.get(normalizedVendorId);
+        if (priorVendorLine !== undefined) {
+          errors.push({
+            lineNumber: item.lineNumber,
+            field: "vendorAssetId",
+            message: `벤더 자산 ID가 ${priorVendorLine}행과 중복됩니다. 한 번에 하나의 행만 가져오세요.`,
+          });
+          continue;
+        }
+        seenVendorIds.set(normalizedVendorId, item.lineNumber);
+      }
+
+      const existing = await tx.query<{ id: string; asset_tag: string; counterparty_id: string }>(
+        `SELECT id, asset_tag, counterparty_id FROM assets
+         WHERE company_id = $1
+           AND (lower(asset_tag) = lower($2) OR ($3::text IS NOT NULL AND lower(vendor_asset_id) = lower($3::text)))`,
+        [session.companyId, item.assetTag, item.vendorAssetId || null],
+      );
+      if (existing.rows.length > 1) {
+        errors.push({
+          lineNumber: item.lineNumber,
+          field: "assetTag",
+          message: "자산 태그와 벤더 자산 ID가 서로 다른 기존 자산을 가리킵니다. 두 식별자를 확인하세요.",
+        });
+        continue;
+      }
+      const existingRow = existing.rows[0];
+      if (existingRow && existingRow.counterparty_id !== targetCustomerId) {
+        errors.push({
+          lineNumber: item.lineNumber,
+          field: "customerCode",
+          message: "기존 자산의 고객사 변경은 CSV 가져오기에서 허용하지 않습니다. 자산 상세 화면에서 명시적으로 변경하세요.",
+        });
+        continue;
+      }
+      prepared.push({ item, targetCustomerId, targetSiteId, existingId: existingRow?.id ?? null });
+    }
+
+    if (errors.length > 0) throw new AssetImportValidationError(errors);
 
     let inserted = 0;
     let updated = 0;
-    const errors: RowValidationError[] = [];
-
-    for (const item of items) {
-      // Find customer
-      let targetCustomerId = defaultCustomer.id;
-      if (item.customerCode) {
-        const found = customers.rows.find(
-          (c) =>
-            c.code.toUpperCase() === item.customerCode?.toUpperCase() ||
-            c.name.includes(item.customerCode!)
-        );
-        if (found) {
-          targetCustomerId = found.id;
-        } else {
-          errors.push({
-            lineNumber: item.lineNumber,
-            field: "customerCode",
-            message: `고객사 '${item.customerCode}'를 찾을 수 없습니다. 기본 고객사로 할당합니다.`,
-          });
-        }
-      }
-
-      // Find site
-      let targetSiteId: string | null = null;
-      if (item.siteCode) {
-        const found = sites.rows.find(
-          (s) =>
-            s.counterparty_id === targetCustomerId &&
-            (s.code.toUpperCase() === item.siteCode?.toUpperCase() ||
-              s.name.includes(item.siteCode!))
-        );
-        if (found) {
-          targetSiteId = found.id;
-        }
-      }
-      if (!targetSiteId) {
-        const defaultSite = defaultSiteForCustomer(targetCustomerId);
-        targetSiteId = defaultSite ? defaultSite.id : null;
-      }
-
-      // Check existing asset
-      const existing = await tx.query<{ id: string; asset_tag: string }>(
-        `SELECT id, asset_tag FROM assets
-         WHERE company_id = $1 AND (asset_tag = $2 OR (vendor_asset_id IS NOT NULL AND vendor_asset_id = $3))
-         LIMIT 1`,
-        [session.companyId, item.assetTag, item.vendorAssetId || ""]
-      );
-
-      if (existing.rows[0]) {
+    for (const { item, targetCustomerId, targetSiteId, existingId } of prepared) {
+      if (existingId) {
         // UPDATE
-        const assetId = existing.rows[0].id;
         await tx.query(
           `UPDATE assets SET
             counterparty_id = $3,
@@ -415,10 +470,10 @@ export async function bulkImportAssets(
             support_until = COALESCE(NULLIF($22, '')::date, support_until),
             notes = COALESCE($23, notes),
             configuration_source = 'import',
-            configuration_checked_at = timezone($24::text, now())
+            configuration_checked_at = now()
            WHERE id = $1 AND company_id = $2`,
           [
-            assetId,
+            existingId,
             session.companyId,
             targetCustomerId,
             targetSiteId,
@@ -441,7 +496,6 @@ export async function bulkImportAssets(
             item.warrantyUntil || "",
             item.supportUntil || "",
             item.notes || null,
-            session.companyTimezone,
           ]
         );
         updated++;
@@ -459,7 +513,7 @@ export async function bulkImportAssets(
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
                    $14, $15, $16, $17, $18, $19, $20,
                    NULLIF($21, '')::date, NULLIF($22, '')::date, NULLIF($23, '')::date, $24,
-                   'import', timezone($25::text, now()))`,
+                   'import', now())`,
           [
             assetId,
             session.companyId,
@@ -485,7 +539,6 @@ export async function bulkImportAssets(
             item.warrantyUntil || "",
             item.supportUntil || "",
             item.notes || null,
-            session.companyTimezone,
           ]
         );
         inserted++;
@@ -506,7 +559,7 @@ export async function bulkImportAssets(
       insertedCount: inserted,
       updatedCount: updated,
       skippedCount: 0,
-      errors,
+      errors: [],
     };
   });
 }
@@ -522,26 +575,35 @@ export async function bulkImportContracts(
   items: BulkImportContractItem[]
 ): Promise<BulkImportSummary> {
   return withCompany(session.companyId, async (tx) => {
-    let inserted = 0;
-    const updated = 0;
     const errors: RowValidationError[] = [];
+    const prepared: Array<{ item: BulkImportContractItem; assetId: string }> = [];
 
     for (const item of items) {
       const asset = await tx.query<{ id: string; asset_tag: string }>(
-        `SELECT id, asset_tag FROM assets WHERE company_id = $1 AND (asset_tag = $2 OR (vendor_asset_id IS NOT NULL AND vendor_asset_id = $3)) LIMIT 1`,
-        [session.companyId, item.assetTag, item.vendorAssetId || ""]
+        `SELECT id, asset_tag FROM assets
+         WHERE company_id = $1
+           AND (lower(asset_tag) = lower($2) OR ($3::text IS NOT NULL AND lower(vendor_asset_id) = lower($3::text)))`,
+        [session.companyId, item.assetTag, item.vendorAssetId || null],
       );
 
-      if (!asset.rows[0]) {
+      if (asset.rows.length !== 1) {
         errors.push({
           lineNumber: item.lineNumber,
           field: "assetTag",
-          message: `자산 태그 '${item.assetTag}'에 해당하는 자산을 찾을 수 없어 건너뜁니다.`,
+          message: asset.rows.length === 0
+            ? `자산 태그 '${item.assetTag}'에 해당하는 자산을 찾을 수 없습니다.`
+            : "자산 태그와 벤더 자산 ID가 서로 다른 기존 자산을 가리킵니다. 두 식별자를 확인하세요.",
         });
         continue;
       }
+      prepared.push({ item, assetId: asset.rows[0]!.id });
+    }
 
-      const assetId = asset.rows[0].id;
+    if (errors.length > 0) throw new AssetImportValidationError(errors);
+
+    let inserted = 0;
+    const updated = 0;
+    for (const { item, assetId } of prepared) {
       const contractId = randomUUID();
 
       const revisionResult = await tx.query<{ revision_number: number }>(
@@ -596,7 +658,7 @@ export async function bulkImportContracts(
             service_method = $7,
             support_started_at = NULLIF($8, '')::date,
             support_until = NULLIF($9, '')::date
-           WHERE id = $1`,
+           WHERE id = $1 AND company_id = $10`,
           [
             assetId,
             item.status,
@@ -607,6 +669,7 @@ export async function bulkImportContracts(
             item.serviceMethod,
             item.startsOn,
             item.endsOn,
+            session.companyId,
           ]
         );
       }

@@ -4,9 +4,20 @@ import { mkdir } from "node:fs/promises";
 export async function openRuntimeDatabase() {
   const driver = process.env.DATABASE_DRIVER ?? "local";
   if (driver === "postgres") {
-    if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required when DATABASE_DRIVER=postgres");
+    const connection = process.env.DATABASE_HOST
+      ? {
+          host: process.env.DATABASE_HOST,
+          port: Number(process.env.DATABASE_PORT ?? 5432),
+          database: process.env.DATABASE_NAME ?? "moarix",
+          user: process.env.DATABASE_USER,
+          password: process.env.DATABASE_PASSWORD,
+        }
+      : process.env.DATABASE_URL
+        ? { connectionString: process.env.DATABASE_URL }
+        : null;
+    if (!connection) throw new Error("DATABASE_URL or DATABASE_HOST is required when DATABASE_DRIVER=postgres");
     const { Pool } = await import("pg");
-    const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 2 });
+    const pool = new Pool({ ...connection, max: 2 });
     return {
       query: (text, params = []) => pool.query(text, params),
       exec: (sql) => pool.query(sql),

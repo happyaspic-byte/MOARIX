@@ -22,6 +22,12 @@ const nextConfig: NextConfig = {
   output: "standalone",
   poweredByHeader: false,
   reactStrictMode: true,
+  experimental: {
+    // CSV imports are capped at 5 MiB in the action itself; leave room for
+    // multipart boundaries while keeping the global Server Action budget
+    // bounded.
+    serverActions: { bodySizeLimit: "6mb" },
+  },
   // PGlite resolves its WASM/data assets from import.meta.url at runtime. Keeping
   // it external prevents the server bundler from creating a cross-realm URL
   // object that Node's filesystem APIs reject in production server actions.

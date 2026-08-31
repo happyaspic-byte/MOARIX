@@ -29,8 +29,12 @@ export type SettlementRow = {
   created_by_name: string;
 };
 
-export async function listOpenDocuments(companyId: string, kind: "invoice" | "bill") {
-  const today = dateInTimeZone("Asia/Seoul");
+export async function listOpenDocuments(
+  companyId: string,
+  kind: "invoice" | "bill",
+  timezone = "Asia/Seoul",
+) {
+  const today = dateInTimeZone(timezone);
   return withCompany(companyId, async (tx) => {
     const result = await tx.query<Omit<OpenDocumentRow, "aging" | "open_amount">>(
       `SELECT d.id, d.kind, d.number, c.name AS counterparty_name, d.due_date::text,

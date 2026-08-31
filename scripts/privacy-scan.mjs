@@ -31,16 +31,12 @@ const sensitiveFileEndings = [
   ".zip",
 ];
 
-const knownPrivateTokens = [
-  ["Han", "hwa"].join(""),
-  ["Hanh", "wa"].join(""),
-  ["Q", " Cells"].join(""),
-  ["Tae", "won"].join(""),
-  ["Hw", "ang"].join(""),
-  ["Sy", "ed"].join(""),
-  ["RP", "-AR"].join(""),
-  ["KIA", " Motors"].join(""),
-];
+// Do not commit real customer/person names here. If a private deployment has
+// additional terms to scan, provide them through MOARIX_PRIVACY_TOKENS in CI.
+const knownPrivateTokens = (process.env.MOARIX_PRIVACY_TOKENS ?? "")
+  .split(",")
+  .map((token) => token.trim())
+  .filter(Boolean);
 
 const contentRules = [
   {
@@ -53,7 +49,9 @@ const contentRules = [
   },
   {
     name: "known customer or person token",
-    pattern: new RegExp(`\\b(?:${knownPrivateTokens.map(escapeRegExp).join("|")})\\b`, "giu"),
+    pattern: knownPrivateTokens.length > 0
+      ? new RegExp(`\\b(?:${knownPrivateTokens.map(escapeRegExp).join("|")})\\b`, "giu")
+      : /(?!)/gu,
   },
   {
     name: "private IPv4 address",

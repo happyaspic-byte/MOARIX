@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireSession } from "@/lib/auth/current";
+import { getCurrentSession } from "@/lib/auth/current";
 import { listAssets, type AssetRow } from "@/lib/services/assets-service";
 import { serializeCsv, type CsvColumnDef } from "@/lib/csv/csv-engine";
 
@@ -41,7 +41,8 @@ const exportColumns: CsvColumnDef<AssetRow>[] = [
 
 export async function GET() {
   try {
-    const session = await requireSession();
+    const session = await getCurrentSession();
+    if (!session) return new NextResponse("Unauthorized", { status: 401 });
     const assets = await listAssets(session.companyId);
 
     const csvContent = serializeCsv(exportColumns, assets);
@@ -55,6 +56,6 @@ export async function GET() {
       },
     });
   } catch {
-    return new NextResponse("Unauthorized or export failed", { status: 401 });
+    return new NextResponse("Export failed", { status: 500 });
   }
 }

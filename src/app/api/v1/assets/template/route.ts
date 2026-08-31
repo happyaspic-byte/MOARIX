@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireSession } from "@/lib/auth/current";
+import { getCurrentSession } from "@/lib/auth/current";
 import { getAssetCsvTemplate, getContractCsvTemplate } from "@/lib/services/asset-import-service";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
   try {
-    await requireSession();
+    if (!(await getCurrentSession())) return new NextResponse("Unauthorized", { status: 401 });
     const type = request.nextUrl.searchParams.get("type") || "asset";
 
     if (type === "contract") {
@@ -27,6 +27,6 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch {
-    return new NextResponse("Unauthorized", { status: 401 });
+    return new NextResponse("Template generation failed", { status: 500 });
   }
 }

@@ -15,12 +15,10 @@
 /playwright-report/
 
 # local environment (keep the example committed)
-.env
-.env.local
-.env.*.local
+.env*
+!.env.example
 
 # logs and editor files
 *.log
 .DS_Store
 *.tsbuildinfo
-

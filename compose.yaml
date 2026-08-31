@@ -5,7 +5,7 @@ services:
     environment:
       POSTGRES_DB: moarix
       POSTGRES_USER: moarix_owner
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-this-database-password}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD to a strong unique password}
     volumes:
       - moarix_postgres:/var/lib/postgresql/data
     healthcheck:
@@ -23,9 +23,13 @@ services:
         condition: service_healthy
     environment:
       DATABASE_DRIVER: postgres
-      DATABASE_URL: postgresql://moarix_owner:${POSTGRES_PASSWORD:-change-this-database-password}@database:5432/moarix
+      DATABASE_HOST: database
+      DATABASE_PORT: 5432
+      DATABASE_NAME: moarix
+      DATABASE_USER: moarix_owner
+      DATABASE_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD to a strong unique password}
       DATABASE_APP_USER: moarix_app
-      DATABASE_APP_PASSWORD: ${DATABASE_APP_PASSWORD:-change-this-app-database-password}
+      DATABASE_APP_PASSWORD: ${DATABASE_APP_PASSWORD:?Set DATABASE_APP_PASSWORD to a different strong unique password}
       SESSION_SECRET: ${SESSION_SECRET:?Set SESSION_SECRET to at least 32 random characters}
     command: ["node", "scripts/migrate-runtime.mjs"]
 
@@ -39,9 +43,14 @@ services:
         condition: service_completed_successfully
     environment:
       DATABASE_DRIVER: postgres
-      DATABASE_URL: postgresql://moarix_app:${DATABASE_APP_PASSWORD:-change-this-app-database-password}@database:5432/moarix
+      DATABASE_HOST: database
+      DATABASE_PORT: 5432
+      DATABASE_NAME: moarix
+      DATABASE_USER: moarix_app
+      DATABASE_PASSWORD: ${DATABASE_APP_PASSWORD:?Set DATABASE_APP_PASSWORD to a different strong unique password}
       SESSION_SECRET: ${SESSION_SECRET:?Set SESSION_SECRET to at least 32 random characters}
-      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      COOKIE_SECURE: ${COOKIE_SECURE:?Set COOKIE_SECURE=true for an HTTPS deployment}
+      ALLOW_INSECURE_COOKIES: ${ALLOW_INSECURE_COOKIES:-false}
     ports:
       - "${PORT:-3000}:3000"
     command: ["node", "server.js"]

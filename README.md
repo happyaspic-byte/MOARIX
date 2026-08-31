@@ -2,7 +2,7 @@
 
 MOARIX는 중소·중견 조직을 위한 멀티테넌트 영업·구매·재고 ERP이자 Stratus 고객 자산·지원·점검·장애 운영 시스템입니다. 특정 상용 제품의 소스나 화면을 복제하지 않고, 검증 가능한 업무 규칙과 감사 추적을 중심으로 독자 구현했습니다.
 
-현재 릴리스는 실제 데이터를 저장하고 역할별 권한을 검사하는 운영 코어입니다. 외부 세금계산서·결제·메일 연동처럼 사업자별 계약이 필요한 기능은 [로드맵](docs/ROADMAP.md)에 분리되어 있습니다.
+현재 릴리스(0.6.0)는 실제 데이터를 저장하고 역할별 권한·테넌트 경계를 검사하는 운영 코어입니다. 외부 세금계산서·결제·메일 연동처럼 사업자별 계약이 필요한 기능은 [로드맵](docs/ROADMAP.md)에 분리되어 있습니다.
 
 ## 구현 범위
 
@@ -101,10 +101,11 @@ export SESSION_SECRET="$(openssl rand -base64 48)"
 export POSTGRES_PASSWORD="replace-with-a-strong-database-password"
 export DATABASE_APP_PASSWORD="replace-with-a-different-strong-app-password"
 export COOKIE_SECURE=false
+export ALLOW_INSECURE_COOKIES=true # 로컬 HTTP 전용
 docker compose up -d --build
 ```
 
-로컬 HTTP에서는 `COOKIE_SECURE=false`를 사용합니다. HTTPS 리버스 프록시 뒤의 운영 환경에서는 반드시 `COOKIE_SECURE=true`로 바꾸세요.
+로컬 HTTP에서는 `COOKIE_SECURE=false`와 `ALLOW_INSECURE_COOKIES=true`를 함께 사용합니다. `ALLOW_INSECURE_COOKIES`는 테스트·로컬 전용이며, HTTPS 리버스 프록시 뒤의 운영 환경에서는 반드시 제거하거나 `false`로 두고 `COOKIE_SECURE=true`를 사용하세요.
 
 최초 소유자 생성:
 
@@ -125,11 +126,14 @@ docker compose run --rm \
 |---|---|---|
 | `DATABASE_DRIVER` | `local` 또는 `postgres` | 운영은 `postgres` 권장 |
 | `DATABASE_URL` | PostgreSQL 연결 문자열 | 비밀 저장소 사용 |
+| `DATABASE_HOST` / `DATABASE_PORT` | PostgreSQL 호스트와 포트(`5432`) | Compose·비밀번호 특수문자 환경에서 `DATABASE_URL` 대신 사용 |
+| `DATABASE_NAME` / `DATABASE_USER` / `DATABASE_PASSWORD` | PostgreSQL DB 이름·연결 역할·비밀번호 | 앱은 제한 역할, 마이그레이션은 소유자 역할 사용 |
 | `DATABASE_APP_USER` | 마이그레이션 시 만들 제한 앱 역할 | Compose 기본 `moarix_app` |
 | `DATABASE_APP_PASSWORD` | 제한 앱 역할 비밀번호 | DB 소유자 암호와 반드시 분리 |
 | `LOCAL_DATABASE_PATH` | PGlite 저장 경로 | 로컬 개발 전용 |
 | `SESSION_SECRET` | 세션 토큰 HMAC 키 | 최소 32자, 환경별 분리 |
 | `COOKIE_SECURE` | Secure 쿠키 강제 여부 | HTTPS에서 `true` |
+| `ALLOW_INSECURE_COOKIES` | production 빌드의 HTTP 쿠키 명시 허용 | 테스트·로컬 HTTP에서만 `true` |
 | `DATABASE_POOL_MAX` | PostgreSQL 풀 크기 | 기본 10, 인스턴스 수와 함께 산정 |
 | `SEED_DEMO_EMAIL` | 로컬 시드 계정 | 운영 사용 금지 |
 | `SEED_DEMO_PASSWORD` | 로컬 시드 비밀번호 | 운영 사용 금지 |

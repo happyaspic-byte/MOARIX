@@ -92,5 +92,19 @@ describe("csv-engine", () => {
         `﻿"자산 태그","비고"\r\n"AST-001","Line 1\nLine 2 with ""quotes"", and comma"\r\n"AST-002","Normal"`
       );
     });
+
+    it("neutralizes spreadsheet formula prefixes in exported data", () => {
+      const csv = serializeCsv(
+        [{ key: "value", label: "값" }],
+        [
+          { value: "=HYPERLINK(\"https://example.invalid\",\"열기\")" },
+          { value: "  +SUM(A1:A2)" },
+          { value: "정상 값" },
+        ],
+      );
+      expect(csv).toContain(`"'=HYPERLINK(""https://example.invalid"",""열기"")"`);
+      expect(csv).toContain(`"'  +SUM(A1:A2)"`);
+      expect(csv).toContain(`"정상 값"`);
+    });
   });
 });

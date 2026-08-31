@@ -13,6 +13,7 @@ const assetAliases = {
   productFamily: ["product_family", "제품군", "패밀리", "Product Family"],
   protectionMode: ["protection_mode", "보호모드", "Protection Mode"],
   customerCode: ["customer_code", "고객사코드", "거래처코드", "Customer Code"],
+  siteCode: ["site_code", "사업장코드", "설치사업장", "Site Code"],
 } satisfies Record<string, string[]>;
 
 const contractAliases = {
@@ -71,6 +72,8 @@ export function AssetImportPanel({ existingAssetKeys }: { existingAssetKeys: str
       if (!data.assetTag) errors.push("자산태그 필수");
       if (isAsset) {
         if (!data.productFamily) errors.push("제품군 필수");
+        if (!data.customerCode) errors.push("고객사코드 필수");
+        if (!data.siteCode) errors.push("사업장코드 필수");
         if (data.productFamily && !["everrun", "ztc_endurance", "ztc_edge", "ftserver", "other"].includes(data.productFamily)) errors.push("제품군 값 오류");
         if (data.protectionMode && !["ha", "ft", "mixed", "none", "other"].includes(data.protectionMode)) errors.push("보호모드 값 오류");
       } else {
