@@ -28,8 +28,8 @@ export type DocumentFormInitial = {
   lines: Array<Omit<LineDraft, "key"> & { key: string }>;
 };
 
-function emptyLine(): LineDraft {
-  return { key: createBrowserId(), itemId: "", quantity: "1", unitPrice: "0", discountRate: "0", taxRate: "10" };
+function emptyLine(key = createBrowserId()): LineDraft {
+  return { key, itemId: "", quantity: "1", unitPrice: "0", discountRate: "0", taxRate: "10" };
 }
 
 export function DocumentForm({
@@ -48,7 +48,7 @@ export function DocumentForm({
   initial?: DocumentFormInitial;
 }) {
   const [state, action] = useActionState(initial ? updateDraftDocumentAction : createDocumentAction, initialFormState);
-  const [lines, setLines] = useState<LineDraft[]>(() => initial?.lines ?? [emptyLine()]);
+  const [lines, setLines] = useState<LineDraft[]>(() => initial?.lines ?? [emptyLine("draft-line")]);
   const formRef = useRef<HTMLFormElement>(null);
   useEffect(() => {
     if (state.status === "success") formRef.current?.closest("details")?.removeAttribute("open");
