@@ -3,6 +3,7 @@
 import { useActionState, useRef } from "react";
 import { FormMessage, initialFormState } from "@/components/form-message";
 import { SubmitButton } from "@/components/submit-button";
+import { createBrowserId } from "@/lib/browser-id";
 import type { ItemRow, WarehouseRow } from "@/lib/services/master-data";
 import { postInventoryMovementAction } from "./actions";
 
@@ -16,7 +17,7 @@ export function InventoryForm({ items, warehouses, idempotencyKey }: { items: It
       className="form-grid"
       onSubmit={() => {
         if (state.status === "success" && idempotencyInput.current) {
-          idempotencyInput.current.value = crypto.randomUUID();
+          idempotencyInput.current.value = createBrowserId();
         }
       }}
     >
