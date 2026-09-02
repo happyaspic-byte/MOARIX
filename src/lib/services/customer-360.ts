@@ -24,6 +24,9 @@ export type Customer360Site = {
   contact_name: string | null;
   contact_phone: string | null;
   contact_email: string | null;
+  si_contact_name: string | null;
+  si_contact_phone: string | null;
+  si_contact_email: string | null;
   timezone: string;
   is_active: boolean;
   asset_count: number;
@@ -95,7 +98,8 @@ export async function getCustomer360(companyId: string, counterpartyId: string) 
     const [sites, assets, cases, inspections] = await Promise.all([
       tx.query<Customer360Site>(
         `SELECT site.id, site.code, site.name, site.address, site.contact_name,
-                site.contact_phone, site.contact_email, site.timezone, site.is_active,
+                site.contact_phone, site.contact_email, site.si_contact_name,
+                site.si_contact_phone, site.si_contact_email, site.timezone, site.is_active,
                 (SELECT count(*)::integer FROM assets asset
                  WHERE asset.company_id = site.company_id AND asset.site_id = site.id
                    AND asset.status <> 'retired') AS asset_count,

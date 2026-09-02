@@ -59,8 +59,10 @@ async function seed() {
     );
     await tx.query(
       `INSERT INTO customer_sites
-         (id, company_id, counterparty_id, code, name, address, contact_name, contact_phone, contact_email, timezone)
-       VALUES ($1, $2, $3, 'PLANT-01', '창원 1공장', '경상남도 창원시 데모산단 1길', '이현장', '055-111-2233', 'plant.ops@example.com', 'Asia/Seoul')`,
+         (id, company_id, counterparty_id, code, name, address, contact_name, contact_phone, contact_email,
+          si_contact_name, si_contact_phone, si_contact_email, timezone)
+       VALUES ($1, $2, $3, 'PLANT-01', '창원 1공장', '경상남도 창원시 데모산단 1길', '이현장', '055-111-2233', 'plant.ops@example.com',
+               '김지원', '02-555-6677', 'si.ops@example.com', 'Asia/Seoul')`,
       [siteId, companyId, customerId],
     );
     await tx.query(

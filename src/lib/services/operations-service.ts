@@ -15,6 +15,9 @@ export type CustomerSiteRow = {
   contact_name: string | null;
   contact_phone: string | null;
   contact_email: string | null;
+  si_contact_name: string | null;
+  si_contact_phone: string | null;
+  si_contact_email: string | null;
   timezone: string;
   asset_count: string;
   open_case_count: string;
@@ -28,6 +31,9 @@ export type CustomerSiteInput = {
   contactName?: string;
   contactPhone?: string;
   contactEmail?: string;
+  siContactName?: string;
+  siContactPhone?: string;
+  siContactEmail?: string;
   timezone: string;
 };
 
@@ -35,7 +41,8 @@ export function listCustomerSites(companyId: string) {
   return withCompany(companyId, async (tx) => {
     const result = await tx.query<CustomerSiteRow>(
       `SELECT s.id, s.counterparty_id, c.name AS counterparty_name, s.code, s.name,
-              s.address, s.contact_name, s.contact_phone, s.contact_email, s.timezone,
+              s.address, s.contact_name, s.contact_phone, s.contact_email,
+              s.si_contact_name, s.si_contact_phone, s.si_contact_email, s.timezone,
               COUNT(DISTINCT a.id)::text AS asset_count,
               COUNT(DISTINCT sc.id) FILTER (WHERE sc.status IN ('open', 'in_progress', 'waiting'))::text AS open_case_count
        FROM customer_sites s
@@ -54,7 +61,8 @@ export function getCustomerSite(companyId: string, id: string) {
   return withCompany(companyId, async (tx) => {
     const result = await tx.query<CustomerSiteRow>(
       `SELECT s.id, s.counterparty_id, c.name AS counterparty_name, s.code, s.name,
-              s.address, s.contact_name, s.contact_phone, s.contact_email, s.timezone,
+              s.address, s.contact_name, s.contact_phone, s.contact_email,
+              s.si_contact_name, s.si_contact_phone, s.si_contact_email, s.timezone,
               COUNT(DISTINCT a.id)::text AS asset_count,
               COUNT(DISTINCT sc.id) FILTER (WHERE sc.status IN ('open', 'in_progress', 'waiting'))::text AS open_case_count
        FROM customer_sites s
@@ -78,7 +86,8 @@ export function updateCustomerSite(session: SessionContext, id: string, input: C
   return withCompany(session.companyId, async (tx) => {
     const before = await tx.query<CustomerSiteRow>(
       `SELECT s.id, s.counterparty_id, c.name AS counterparty_name, s.code, s.name,
-              s.address, s.contact_name, s.contact_phone, s.contact_email, s.timezone,
+              s.address, s.contact_name, s.contact_phone, s.contact_email,
+              s.si_contact_name, s.si_contact_phone, s.si_contact_email, s.timezone,
               '0' AS asset_count, '0' AS open_case_count
        FROM customer_sites s
        JOIN counterparties c ON c.company_id = s.company_id AND c.id = s.counterparty_id
@@ -110,10 +119,14 @@ export function updateCustomerSite(session: SessionContext, id: string, input: C
               contact_name = $6,
               contact_phone = $7,
               contact_email = $8,
-              timezone = $9,
+              si_contact_name = $9,
+              si_contact_phone = $10,
+              si_contact_email = $11,
+              timezone = $12,
               is_active = true
         WHERE id = $1
-        RETURNING id, counterparty_id, code, name, address, contact_name, contact_phone, contact_email, timezone`,
+        RETURNING id, counterparty_id, code, name, address, contact_name, contact_phone, contact_email,
+                  si_contact_name, si_contact_phone, si_contact_email, timezone`,
       [
         id,
         input.counterpartyId,
@@ -123,6 +136,9 @@ export function updateCustomerSite(session: SessionContext, id: string, input: C
         emptyToNull(input.contactName),
         emptyToNull(input.contactPhone),
         emptyToNull(input.contactEmail),
+        input.siContactName === undefined ? previous.si_contact_name : emptyToNull(input.siContactName),
+        input.siContactPhone === undefined ? previous.si_contact_phone : emptyToNull(input.siContactPhone),
+        input.siContactEmail === undefined ? previous.si_contact_email : emptyToNull(input.siContactEmail),
         input.timezone,
       ],
     );
@@ -146,7 +162,8 @@ export function deleteCustomerSite(session: SessionContext, id: string) {
   return withCompany(session.companyId, async (tx) => {
     const before = await tx.query<CustomerSiteRow>(
       `SELECT s.id, s.counterparty_id, c.name AS counterparty_name, s.code, s.name,
-              s.address, s.contact_name, s.contact_phone, s.contact_email, s.timezone,
+              s.address, s.contact_name, s.contact_phone, s.contact_email,
+              s.si_contact_name, s.si_contact_phone, s.si_contact_email, s.timezone,
               '0' AS asset_count, '0' AS open_case_count
        FROM customer_sites s
        JOIN counterparties c ON c.company_id = s.company_id AND c.id = s.counterparty_id
@@ -203,9 +220,23 @@ export function createCustomerSite(session: SessionContext, input: CustomerSiteI
     await tx.query(
       `INSERT INTO customer_sites
          (id, company_id, counterparty_id, code, name, address, contact_name,
-          contact_phone, contact_email, timezone)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-      [id, session.companyId, input.counterpartyId, input.code.trim().toUpperCase(), input.name, input.address || null, input.contactName || null, input.contactPhone || null, input.contactEmail || null, input.timezone],
+          contact_phone, contact_email, si_contact_name, si_contact_phone, si_contact_email, timezone)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+      [
+        id,
+        session.companyId,
+        input.counterpartyId,
+        input.code.trim().toUpperCase(),
+        input.name,
+        emptyToNull(input.address),
+        emptyToNull(input.contactName),
+        emptyToNull(input.contactPhone),
+        emptyToNull(input.contactEmail),
+        emptyToNull(input.siContactName),
+        emptyToNull(input.siContactPhone),
+        emptyToNull(input.siContactEmail),
+        input.timezone,
+      ],
     );
     await writeAudit(tx, {
       companyId: session.companyId,
@@ -214,7 +245,19 @@ export function createCustomerSite(session: SessionContext, input: CustomerSiteI
       entityType: "customer_site",
       entityId: id,
       summary: `${input.code} ${input.name} 사업장 등록`,
-      afterData: { code: input.code, name: input.name, counterpartyId: input.counterpartyId },
+      afterData: {
+        code: input.code.trim().toUpperCase(),
+        name: input.name,
+        counterpartyId: input.counterpartyId,
+        address: emptyToNull(input.address),
+        contact_name: emptyToNull(input.contactName),
+        contact_phone: emptyToNull(input.contactPhone),
+        contact_email: emptyToNull(input.contactEmail),
+        si_contact_name: emptyToNull(input.siContactName),
+        si_contact_phone: emptyToNull(input.siContactPhone),
+        si_contact_email: emptyToNull(input.siContactEmail),
+        timezone: input.timezone,
+      },
     });
     return id;
   });

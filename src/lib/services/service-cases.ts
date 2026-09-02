@@ -50,6 +50,9 @@ export type ServiceCaseDetailRow = ServiceCaseRow & {
   software_version: string | null;
   site_id: string | null;
   site_name: string | null;
+  si_contact_name: string | null;
+  si_contact_phone: string | null;
+  si_contact_email: string | null;
   contract_number: string | null;
   support_provider: string | null;
   support_level: string | null;
@@ -124,7 +127,8 @@ export function getServiceCaseDetail(companyId: string, caseId: string) {
               s.counterparty_id, c.name AS counterparty_name, c.email AS counterparty_email,
               c.phone AS counterparty_phone, s.contact_name, s.contact_email, s.contact_phone,
               s.entitlement, s.asset_id, a.asset_tag, a.vendor_asset_id, a.product_name,
-              a.product_model, a.software_version, a.site_id, cs.name AS site_name, a.contract_number,
+              a.product_model, a.software_version, a.site_id, cs.name AS site_name,
+              cs.si_contact_name, cs.si_contact_phone, cs.si_contact_email, a.contract_number,
               a.support_provider, a.support_level, u.name AS assigned_to_name,
               s.opened_at::text, s.updated_at::text, s.due_at::text, s.next_action_at::text,
               s.resolved_at::text, s.closed_at::text, s.external_provider,

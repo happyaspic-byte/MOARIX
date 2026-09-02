@@ -359,6 +359,9 @@ export const customerSiteSchema = z.object({
   contactName: optionalText(80),
   contactPhone: optionalText(30),
   contactEmail: z.union([z.email().max(254), z.literal("")]).optional(),
+  siContactName: optionalText(80),
+  siContactPhone: optionalText(30),
+  siContactEmail: z.union([z.email().max(254), z.literal("")]).optional(),
   timezone: z.enum(["Asia/Seoul", "Europe/Prague", "UTC"]),
 });
 export const customerSiteUpdateSchema = customerSiteSchema.extend({ id: z.uuid() });

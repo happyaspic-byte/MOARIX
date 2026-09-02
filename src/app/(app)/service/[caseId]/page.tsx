@@ -98,11 +98,12 @@ export default async function ServiceCaseDetailPage({ params }: { params: Promis
       </section>
 
       <aside className="card span-4">
-        <header className="card-header"><div><h2>Account Information</h2><p>고객·지원 권한·자산 연결 정보</p></div></header>
+        <header className="card-header"><div><h2>Account Information</h2><p>고객·SI업체 담당자·지원 권한·자산 연결 정보</p></div></header>
         <dl className="detail-list">
           <div><dt>Account</dt><dd><Link className="table-link" href={`/counterparties/${detail.counterparty_id}`}>{detail.counterparty_name}</Link></dd></div>
           <div><dt>Account 연락처</dt><dd>{detail.counterparty_email ?? detail.counterparty_phone ?? "—"}</dd></div>
-          <div><dt>Contact</dt><dd>{detail.contact_name ?? "—"}{detail.contact_email ? <small>{detail.contact_email}</small> : null}{detail.contact_phone ? <small>{detail.contact_phone}</small> : null}</dd></div>
+          <div><dt>고객 담당자</dt><dd>{detail.contact_name ?? "—"}{detail.contact_email ? <small>{detail.contact_email}</small> : null}{detail.contact_phone ? <small>{detail.contact_phone}</small> : null}</dd></div>
+          <div><dt>SI업체 담당자</dt><dd>{detail.si_contact_name ?? "—"}{detail.si_contact_email ? <small>{detail.si_contact_email}</small> : null}{detail.si_contact_phone ? <small>{detail.si_contact_phone}</small> : null}</dd></div>
           <div><dt>Entitlement</dt><dd>{detail.entitlement ?? detail.support_level ?? "—"}</dd></div>
           <div><dt>Asset</dt><dd>{detail.asset_id ? <Link className="table-link" href={`/assets/${detail.asset_id}`}>{detail.vendor_asset_id ?? detail.asset_tag ?? "자산 상세"}</Link> : "—"}{detail.asset_tag && detail.vendor_asset_id ? <small>{detail.asset_tag}</small> : null}</dd></div>
           <div><dt>Product</dt><dd>{detail.product_name ?? "—"}{detail.product_model ? <small>{detail.product_model}</small> : null}{detail.software_version ? <small>버전 {detail.software_version}</small> : null}</dd></div>

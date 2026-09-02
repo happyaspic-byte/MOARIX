@@ -80,6 +80,9 @@ describe("customer site update and delete", () => {
       contactName: "현장 담당",
       contactPhone: "055-000-0000",
       contactEmail: "plant@example.invalid",
+      siContactName: "SI 기술 담당",
+      siContactPhone: "02-000-0000",
+      siContactEmail: "si@example.invalid",
       timezone: "Asia/Seoul",
     });
 
@@ -91,6 +94,9 @@ describe("customer site update and delete", () => {
       contactName: "현장 담당 수정",
       contactPhone: "055-111-1111",
       contactEmail: "updated@example.invalid",
+      siContactName: "SI 기술 담당 수정",
+      siContactPhone: "02-111-1111",
+      siContactEmail: "si-updated@example.invalid",
       timezone: "Asia/Seoul",
     });
     expect(await getCustomerSite(companyId, siteId)).toMatchObject({
@@ -99,6 +105,9 @@ describe("customer site update and delete", () => {
       contact_name: "현장 담당 수정",
       contact_phone: "055-111-1111",
       contact_email: "updated@example.invalid",
+      si_contact_name: "SI 기술 담당 수정",
+      si_contact_phone: "02-111-1111",
+      si_contact_email: "si-updated@example.invalid",
     });
 
     await updateCustomerSite(session, siteId, {
@@ -109,6 +118,9 @@ describe("customer site update and delete", () => {
       contactName: "",
       contactPhone: "",
       contactEmail: "",
+      siContactName: "",
+      siContactPhone: "",
+      siContactEmail: "",
       timezone: "Asia/Seoul",
     });
     const cleared = await getCustomerSite(companyId, siteId);
@@ -116,6 +128,39 @@ describe("customer site update and delete", () => {
       contact_name: null,
       contact_phone: null,
       contact_email: null,
+      si_contact_name: null,
+      si_contact_phone: null,
+      si_contact_email: null,
+    });
+
+    await updateCustomerSite(session, siteId, {
+      counterpartyId: customerId,
+      code: "changwon",
+      name: "창원 1공장",
+      address: "Changwon-si, Gyeongsangnam-do, 51573, Korea, Republic of",
+      contactName: "현장 담당 복원",
+      contactPhone: "055-222-2222",
+      contactEmail: "restored@example.invalid",
+      siContactName: "SI 기술 담당 복원",
+      siContactPhone: "02-222-2222",
+      siContactEmail: "si-restored@example.invalid",
+      timezone: "Asia/Seoul",
+    });
+    await updateCustomerSite(session, siteId, {
+      counterpartyId: customerId,
+      code: "changwon",
+      name: "창원 1공장",
+      address: "Changwon-si, Gyeongsangnam-do, 51573, Korea, Republic of",
+      contactName: "현장 담당 복원",
+      contactPhone: "055-222-2222",
+      contactEmail: "restored@example.invalid",
+      timezone: "Asia/Seoul",
+    });
+    expect(await getCustomerSite(companyId, siteId)).toMatchObject({
+      contact_name: "현장 담당 복원",
+      si_contact_name: "SI 기술 담당 복원",
+      si_contact_phone: "02-222-2222",
+      si_contact_email: "si-restored@example.invalid",
     });
   }, 20_000);
 

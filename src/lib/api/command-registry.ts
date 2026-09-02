@@ -294,7 +294,7 @@ const commands: CommandDefinition[] = [
   defineCommand({
     operation: "sites.list", summary: "고객 사업장을 조회합니다.",
     mode: "read", permission: "assets:read", scope: "assets:read", inputSchema: listSchema,
-    execute: async (actor, input) => filterAndLimit(await listCustomerSites(actor.companyId), input, ["code", "name", "counterparty_name", "address"]),
+    execute: async (actor, input) => filterAndLimit(await listCustomerSites(actor.companyId), input, ["code", "name", "counterparty_name", "address", "contact_name", "si_contact_name"]),
   }),
   defineCommand({
     operation: "sites.create", summary: "고객 사업장을 등록합니다.",
@@ -302,7 +302,7 @@ const commands: CommandDefinition[] = [
     execute: async (actor, input) => ({ id: await createCustomerSite(actor, input) }),
   }),
   defineCommand({
-    operation: "sites.update", summary: "고객 사업장과 담당자를 수정합니다.",
+    operation: "sites.update", summary: "고객 사업장과 고객·SI업체 담당자를 수정합니다.",
     mode: "write", permission: "assets:write", scope: "assets:write", inputSchema: customerSiteUpdateSchema.strict(),
     execute: async (actor, input) => {
       const { id, ...data } = input;

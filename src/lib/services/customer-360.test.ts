@@ -38,8 +38,9 @@ beforeAll(async () => {
       [customerId, companyId],
     );
     await tx.query(
-      `INSERT INTO customer_sites (id, company_id, counterparty_id, code, name)
-       VALUES ($1, $2, $3, 'SYN-SITE', 'Synthetic Site')`,
+      `INSERT INTO customer_sites
+         (id, company_id, counterparty_id, code, name, si_contact_name, si_contact_phone, si_contact_email)
+       VALUES ($1, $2, $3, 'SYN-SITE', 'Synthetic Site', 'Synthetic SI', '02-000-0000', 'si@example.invalid')`,
       [siteId, companyId, customerId],
     );
     await tx.query(
@@ -69,7 +70,13 @@ describe("customer 360 service", () => {
   it("returns the customer's sites and assets while hiding another tenant", async () => {
     const workspace = await getCustomer360(companyId, customerId);
     expect(workspace?.customer).toMatchObject({ id: customerId, name: "Synthetic Customer" });
-    expect(workspace?.sites).toMatchObject([{ id: siteId, asset_count: 1 }]);
+    expect(workspace?.sites).toMatchObject([{
+      id: siteId,
+      asset_count: 1,
+      si_contact_name: "Synthetic SI",
+      si_contact_phone: "02-000-0000",
+      si_contact_email: "si@example.invalid",
+    }]);
     expect(workspace?.assets).toMatchObject([{ id: assetId, product_family: "everrun" }]);
     expect(workspace?.cases).toEqual([]);
     expect(workspace?.inspections).toEqual([]);
