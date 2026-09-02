@@ -83,6 +83,7 @@ export default async function DocumentsPage({
       <div className="create-drawer">
         <div className="drawer-head"><div><h2>{draftToEdit ? `${draftToEdit.document.number} 초안 수정` : `새 ${documentKindLabels[kind]}`}</h2><p>여러 품목을 한 문서에 등록하고, 확정 후 다음 문서로 전환합니다.</p></div><DrawerCloseButton /></div>
         <DocumentForm
+          key={draftToEdit?.document.id ?? `create-${kind}`}
           kind={kind}
           counterparties={filteredCounterparties}
           items={activeItems}
