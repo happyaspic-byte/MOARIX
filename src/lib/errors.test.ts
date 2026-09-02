@@ -14,5 +14,16 @@ describe("publicError", () => {
     expect(publicError(new Error("Invalid driving log transition: approved -> submitted"))).toBe(
       "현재 상태에서 요청한 운행일지 상태로 변경할 수 없습니다.",
     );
+    expect(publicError(new Error("Counterparty has linked assets"))).toBe(
+      "연결된 운영 자산이 있어 거래처를 삭제할 수 없습니다. 자산을 먼저 옮기거나 퇴역하세요.",
+    );
+    expect(publicError(new Error("Customer site has linked assets"))).toBe(
+      "연결된 운영 자산이 있어 사업장을 삭제하거나 고객사를 바꿀 수 없습니다. 자산을 먼저 옮기거나 퇴역하세요.",
+    );
+    expect(publicError(new Error("Counterparty not found"))).toBe("거래처를 찾을 수 없습니다.");
+    expect(publicError(new Error("Counterparty has linked sites"))).toBe(
+      "연결된 사업장이 있어 거래처를 삭제할 수 없습니다. 사업장을 먼저 삭제하세요.",
+    );
+    expect(publicError(new Error("Customer site not found"))).toBe("사업장을 찾을 수 없습니다.");
   });
 });

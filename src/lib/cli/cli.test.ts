@@ -146,7 +146,7 @@ describe.sequential("MOARIX CLI", () => {
     };
     expect(output.ok).toBe(true);
     expect(output.data.commands.resources.asset).toEqual(["list", "get", "create", "update"]);
-    expect(output.data.commands.resources.customer).toEqual(["list", "create"]);
+    expect(output.data.commands.resources.customer).toEqual(["list", "create", "update", "delete"]);
     expect(output.data.commands.resources.case).toContain("attachment-add");
     expect(output.data.safety.token).toContain("MOARIX_TOKEN");
   });

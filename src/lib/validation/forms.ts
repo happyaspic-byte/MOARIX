@@ -52,6 +52,8 @@ export const counterpartySchema = z.object({
   paymentTermsDays: z.coerce.number().int().min(0).max(365),
   creditLimit: nonNegativeDecimal,
 });
+export const counterpartyUpdateSchema = counterpartySchema.extend({ id: z.uuid() });
+export const counterpartyDeleteSchema = z.object({ id: z.uuid() });
 
 export const itemSchema = z.object({
   sku: trimmed(50).transform((value) => value.toUpperCase()),
@@ -359,6 +361,8 @@ export const customerSiteSchema = z.object({
   contactEmail: z.union([z.email().max(254), z.literal("")]).optional(),
   timezone: z.enum(["Asia/Seoul", "Europe/Prague", "UTC"]),
 });
+export const customerSiteUpdateSchema = customerSiteSchema.extend({ id: z.uuid() });
+export const customerSiteDeleteSchema = z.object({ id: z.uuid() });
 
 export const inspectionSchema = z.object({
   assetId: z.uuid(),

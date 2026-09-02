@@ -19,6 +19,8 @@ const FRIENDLY_OPERATIONS = Object.freeze({
   customer: Object.freeze({
     list: "master.counterparties.list",
     create: "master.counterparties.create",
+    update: "master.counterparties.update",
+    delete: "master.counterparties.delete",
   }),
   item: Object.freeze({
     list: "master.items.list",
@@ -27,6 +29,8 @@ const FRIENDLY_OPERATIONS = Object.freeze({
   site: Object.freeze({
     list: "sites.list",
     create: "sites.create",
+    update: "sites.update",
+    delete: "sites.delete",
   }),
   asset: Object.freeze({
     list: "assets.list",
@@ -86,6 +90,7 @@ const RESOURCE_ALIASES = Object.freeze({
 const ACTIONS_REQUIRING_ID = new Set([
   "activity-add",
   "attachment-add",
+  "delete",
   "get",
   "transition",
   "update",

@@ -96,10 +96,14 @@ AI는 먼저 `context`에서 회사·사용자 범위를 확인하고, `capabili
 |---|---|---|
 | `customer list` | `master.counterparties.list` | 아니요 |
 | `customer create` | `master.counterparties.create` | 아니요 |
+| `customer update <id>` | `master.counterparties.update` | 예 |
+| `customer delete <id>` | `master.counterparties.delete` | 예 |
 | `item list` | `master.items.list` | 아니요 |
 | `item create` | `master.items.create` | 아니요 |
 | `site list` | `sites.list` | 아니요 |
 | `site create` | `sites.create` | 아니요 |
+| `site update <id>` | `sites.update` | 예 |
+| `site delete <id>` | `sites.delete` | 예 |
 | `asset list` | `assets.list` | 아니요 |
 | `asset get <id>` | `assets.get` | 예 |
 | `asset create` | `assets.create` | 아니요 |

@@ -37,16 +37,20 @@ import {
   createCounterparty,
   createItem,
   createWarehouse,
+  deleteCounterparty,
   listCounterparties,
   listItems,
   listWarehouses,
+  updateCounterparty,
 } from "@/lib/services/master-data";
 import {
   createCustomerSite,
   createInspection,
+  deleteCustomerSite,
   listCustomerSites,
   listInspections,
   transitionInspection,
+  updateCustomerSite,
 } from "@/lib/services/operations-service";
 import { getStandardReports } from "@/lib/services/reports";
 import {
@@ -70,8 +74,12 @@ import {
   assetSchema,
   assetVmSchema,
   assetVmUpdateSchema,
+  counterpartyDeleteSchema,
   counterpartySchema,
+  counterpartyUpdateSchema,
+  customerSiteDeleteSchema,
   customerSiteSchema,
+  customerSiteUpdateSchema,
   rawDocumentSchema,
   drivingLogListSchema,
   drivingLogMonthSchema,
@@ -247,6 +255,23 @@ const commands: CommandDefinition[] = [
     execute: async (actor, input) => ({ id: await createCounterparty(actor, input) }),
   }),
   defineCommand({
+    operation: "master.counterparties.update", summary: "고객사 또는 공급사 기준정보를 수정합니다.",
+    mode: "write", permission: "master:write", scope: "master:write", inputSchema: counterpartyUpdateSchema.strict(),
+    execute: async (actor, input) => {
+      const { id, ...data } = input;
+      await updateCounterparty(actor, id, data);
+      return { id };
+    },
+  }),
+  defineCommand({
+    operation: "master.counterparties.delete", summary: "연결된 사업장·자산이 없는 거래처를 삭제합니다.",
+    mode: "write", permission: "master:write", scope: "master:write", inputSchema: counterpartyDeleteSchema.strict(),
+    execute: async (actor, input) => {
+      await deleteCounterparty(actor, input.id);
+      return { id: input.id };
+    },
+  }),
+  defineCommand({
     operation: "master.items.list", summary: "상품·자재·서비스 품목을 조회합니다.",
     mode: "read", permission: "master:read", scope: "master:read", inputSchema: listSchema,
     execute: async (actor, input) => filterAndLimit(await listItems(actor.companyId), input, ["sku", "name"]),
@@ -275,6 +300,23 @@ const commands: CommandDefinition[] = [
     operation: "sites.create", summary: "고객 사업장을 등록합니다.",
     mode: "write", permission: "assets:write", scope: "assets:write", inputSchema: customerSiteSchema.strict(),
     execute: async (actor, input) => ({ id: await createCustomerSite(actor, input) }),
+  }),
+  defineCommand({
+    operation: "sites.update", summary: "고객 사업장과 담당자를 수정합니다.",
+    mode: "write", permission: "assets:write", scope: "assets:write", inputSchema: customerSiteUpdateSchema.strict(),
+    execute: async (actor, input) => {
+      const { id, ...data } = input;
+      await updateCustomerSite(actor, id, data);
+      return { id };
+    },
+  }),
+  defineCommand({
+    operation: "sites.delete", summary: "연결된 자산이 없는 고객 사업장을 삭제합니다.",
+    mode: "write", permission: "assets:write", scope: "assets:write", inputSchema: customerSiteDeleteSchema.strict(),
+    execute: async (actor, input) => {
+      await deleteCustomerSite(actor, input.id);
+      return { id: input.id };
+    },
   }),
   defineCommand({
     operation: "assets.list", summary: "Stratus/일반 고객 자산을 조회합니다.",

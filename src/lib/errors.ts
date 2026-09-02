@@ -18,6 +18,17 @@ export function publicError(error: unknown, fallback = "요청을 처리하지 �
     if (error.message.includes("last active owner")) return "회사의 마지막 소유자는 비활성화하거나 역할을 변경할 수 없습니다.";
     if (error.message.includes("cannot manage an owner")) return "관리자는 소유자 계정을 변경할 수 없습니다.";
     if (error.message.includes("cannot assign the owner role")) return "소유자 역할은 현재 소유자만 지정할 수 있습니다.";
+    if (error.message.includes("Counterparty not found")) return "거래처를 찾을 수 없습니다.";
+    if (error.message.includes("Counterparty has linked assets")) return "연결된 운영 자산이 있어 거래처를 삭제할 수 없습니다. 자산을 먼저 옮기거나 퇴역하세요.";
+    if (error.message.includes("Counterparty has linked sites")) return "연결된 사업장이 있어 거래처를 삭제할 수 없습니다. 사업장을 먼저 삭제하세요.";
+    if (error.message.includes("Counterparty has linked documents")) return "연결된 거래 문서가 있어 거래처를 삭제할 수 없습니다.";
+    if (error.message.includes("Counterparty has linked cases")) return "진행 중인 서비스 케이스가 있어 거래처를 삭제할 수 없습니다.";
+    if (error.message.includes("Counterparty still has customer records")) return "연결된 사업장·자산·케이스가 있어 고객 유형을 해제할 수 없습니다.";
+    if (error.message.includes("Counterparty already inactive")) return "이미 삭제된 거래처입니다.";
+    if (error.message.includes("Customer site already inactive")) return "이미 삭제된 사업장입니다.";
+    if (error.message.includes("Customer site not found")) return "사업장을 찾을 수 없습니다.";
+    if (error.message.includes("Customer site has linked assets")) return "연결된 운영 자산이 있어 사업장을 삭제하거나 고객사를 바꿀 수 없습니다. 자산을 먼저 옮기거나 퇴역하세요.";
+    if (error.message.includes("Customer site has linked cases")) return "진행 중인 서비스 케이스가 있어 사업장을 삭제할 수 없습니다.";
     if (error.message.includes("Customer site mismatch")) return "선택한 사업장이 고객사에 속하지 않습니다.";
     if (error.message.includes("Service case customer mismatch")) return "활성 고객사만 서비스 케이스에 연결할 수 있습니다.";
     if (error.message.includes("Service case asset mismatch")) return "선택한 자산이 고객사에 속하지 않습니다.";

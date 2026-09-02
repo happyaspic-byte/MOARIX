@@ -328,7 +328,8 @@ function findUniqueLookup<T extends { code: string; name: string }>(rows: T[], v
  * - Resolves customer & site by exact code or exact name
  * - Rejects incomplete/ambiguous mappings before writing any row
  * - Checks existing asset by asset_tag and vendor_asset_id without ambiguous LIMIT 1 matching
- * - Updates existing asset if found; Inserts new asset if not
+ * - Updates existing asset if found, including customer/site reassignment when the CSV target differs
+ * - Inserts new asset if not found
  * - Writes audit log
  */
 export async function bulkImportAssets(
@@ -413,8 +414,8 @@ export async function bulkImportAssets(
         seenVendorIds.set(normalizedVendorId, item.lineNumber);
       }
 
-      const existing = await tx.query<{ id: string; asset_tag: string; counterparty_id: string }>(
-        `SELECT id, asset_tag, counterparty_id FROM assets
+      const existing = await tx.query<{ id: string; asset_tag: string; counterparty_id: string; site_id: string | null }>(
+        `SELECT id, asset_tag, counterparty_id, site_id FROM assets
          WHERE company_id = $1
            AND (lower(asset_tag) = lower($2) OR ($3::text IS NOT NULL AND lower(vendor_asset_id) = lower($3::text)))`,
         [session.companyId, item.assetTag, item.vendorAssetId || null],
@@ -428,13 +429,27 @@ export async function bulkImportAssets(
         continue;
       }
       const existingRow = existing.rows[0];
-      if (existingRow && existingRow.counterparty_id !== targetCustomerId) {
-        errors.push({
-          lineNumber: item.lineNumber,
-          field: "customerCode",
-          message: "기존 자산의 고객사 변경은 CSV 가져오기에서 허용하지 않습니다. 자산 상세 화면에서 명시적으로 변경하세요.",
-        });
-        continue;
+      if (existingRow) {
+        const customerChanged = existingRow.counterparty_id !== targetCustomerId;
+        const siteChanged = (existingRow.site_id ?? null) !== targetSiteId;
+        if (customerChanged || siteChanged) {
+          const dependents = await tx.query<{ cases: string; inspections: string }>(
+            `SELECT
+               (SELECT count(*)::text FROM service_cases WHERE company_id = $1 AND asset_id = $2) AS cases,
+               (SELECT count(*)::text FROM maintenance_inspections WHERE company_id = $1 AND asset_id = $2) AS inspections`,
+            [session.companyId, existingRow.id],
+          );
+          const caseCount = Number(dependents.rows[0]?.cases ?? "0");
+          const inspectionCount = Number(dependents.rows[0]?.inspections ?? "0");
+          if (caseCount > 0 || inspectionCount > 0) {
+            errors.push({
+              lineNumber: item.lineNumber,
+              field: "customerCode",
+              message: `자산 '${item.assetTag}'에 서비스 케이스 또는 점검 이력이 있어 고객사·사업장을 바꿀 수 없습니다.`,
+            });
+            continue;
+          }
+        }
       }
       prepared.push({ item, targetCustomerId, targetSiteId, existingId: existingRow?.id ?? null });
     }

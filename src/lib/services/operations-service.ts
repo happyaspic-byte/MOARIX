@@ -50,6 +50,148 @@ export function listCustomerSites(companyId: string) {
   });
 }
 
+export function getCustomerSite(companyId: string, id: string) {
+  return withCompany(companyId, async (tx) => {
+    const result = await tx.query<CustomerSiteRow>(
+      `SELECT s.id, s.counterparty_id, c.name AS counterparty_name, s.code, s.name,
+              s.address, s.contact_name, s.contact_phone, s.contact_email, s.timezone,
+              COUNT(DISTINCT a.id)::text AS asset_count,
+              COUNT(DISTINCT sc.id) FILTER (WHERE sc.status IN ('open', 'in_progress', 'waiting'))::text AS open_case_count
+       FROM customer_sites s
+       JOIN counterparties c ON c.company_id = s.company_id AND c.id = s.counterparty_id
+       LEFT JOIN assets a ON a.company_id = s.company_id AND a.site_id = s.id AND a.status <> 'retired'
+       LEFT JOIN service_cases sc ON sc.company_id = a.company_id AND sc.asset_id = a.id
+       WHERE s.id = $1
+       GROUP BY s.id, c.name`,
+      [id],
+    );
+    return result.rows[0] ?? null;
+  });
+}
+
+function emptyToNull(value?: string) {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
+export function updateCustomerSite(session: SessionContext, id: string, input: CustomerSiteInput) {
+  return withCompany(session.companyId, async (tx) => {
+    const before = await tx.query<CustomerSiteRow>(
+      `SELECT s.id, s.counterparty_id, c.name AS counterparty_name, s.code, s.name,
+              s.address, s.contact_name, s.contact_phone, s.contact_email, s.timezone,
+              '0' AS asset_count, '0' AS open_case_count
+       FROM customer_sites s
+       JOIN counterparties c ON c.company_id = s.company_id AND c.id = s.counterparty_id
+       WHERE s.id = $1`,
+      [id],
+    );
+    const previous = before.rows[0];
+    if (!previous) throw new Error("Customer site not found");
+    const customer = await tx.query<{ id: string }>(
+      "SELECT id FROM counterparties WHERE id = $1 AND kind IN ('customer', 'both') AND is_active = true",
+      [input.counterpartyId],
+    );
+    if (!customer.rows[0]) throw new Error("Customer not found");
+    if (previous.counterparty_id !== input.counterpartyId) {
+      const linkedAssets = await tx.query<{ count: string }>(
+        "SELECT count(*)::text AS count FROM assets WHERE company_id = $1 AND site_id = $2",
+        [session.companyId, id],
+      );
+      if (Number(linkedAssets.rows[0]?.count ?? "0") > 0) {
+        throw new Error("Customer site has linked assets");
+      }
+    }
+    const updated = await tx.query<CustomerSiteRow>(
+      `UPDATE customer_sites
+          SET counterparty_id = $2,
+              code = $3,
+              name = $4,
+              address = $5,
+              contact_name = $6,
+              contact_phone = $7,
+              contact_email = $8,
+              timezone = $9,
+              is_active = true
+        WHERE id = $1
+        RETURNING id, counterparty_id, code, name, address, contact_name, contact_phone, contact_email, timezone`,
+      [
+        id,
+        input.counterpartyId,
+        input.code.trim().toUpperCase(),
+        input.name,
+        emptyToNull(input.address),
+        emptyToNull(input.contactName),
+        emptyToNull(input.contactPhone),
+        emptyToNull(input.contactEmail),
+        input.timezone,
+      ],
+    );
+    const after = updated.rows[0];
+    if (!after) throw new Error("Customer site not found");
+    await writeAudit(tx, {
+      companyId: session.companyId,
+      actorUserId: session.userId,
+      action: "customer_site.updated",
+      entityType: "customer_site",
+      entityId: id,
+      summary: `${after.code} ${after.name} 사업장 수정`,
+      beforeData: previous,
+      afterData: after,
+    });
+    return { id: after.id, previousCounterpartyId: previous.counterparty_id };
+  });
+}
+
+export function deleteCustomerSite(session: SessionContext, id: string) {
+  return withCompany(session.companyId, async (tx) => {
+    const before = await tx.query<CustomerSiteRow>(
+      `SELECT s.id, s.counterparty_id, c.name AS counterparty_name, s.code, s.name,
+              s.address, s.contact_name, s.contact_phone, s.contact_email, s.timezone,
+              '0' AS asset_count, '0' AS open_case_count
+       FROM customer_sites s
+       JOIN counterparties c ON c.company_id = s.company_id AND c.id = s.counterparty_id
+       WHERE s.id = $1`,
+      [id],
+    );
+    const previous = before.rows[0];
+    if (!previous) throw new Error("Customer site not found");
+    const active = await tx.query<{ is_active: boolean }>(
+      "SELECT is_active FROM customer_sites WHERE id = $1",
+      [id],
+    );
+    if (!active.rows[0]?.is_active) throw new Error("Customer site already inactive");
+    const linked = await tx.query<{ assets: string; cases: string }>(
+      `SELECT
+         (SELECT count(*)::text FROM assets WHERE company_id = $1 AND site_id = $2 AND status <> 'retired') AS assets,
+         (SELECT count(*)::text FROM service_cases sc
+            JOIN assets a ON a.company_id = sc.company_id AND a.id = sc.asset_id
+           WHERE sc.company_id = $1 AND a.site_id = $2 AND sc.status IN ('open', 'in_progress', 'waiting')) AS cases`,
+      [session.companyId, id],
+    );
+    const counts = linked.rows[0]!;
+    if (Number(counts.assets) > 0) throw new Error("Customer site has linked assets");
+    if (Number(counts.cases) > 0) throw new Error("Customer site has linked cases");
+    const deactivated = await tx.query<{ id: string }>(
+      `UPDATE customer_sites
+          SET is_active = false
+        WHERE id = $1 AND is_active = true
+        RETURNING id`,
+      [id],
+    );
+    if (!deactivated.rows[0]) throw new Error("Customer site already inactive");
+    await writeAudit(tx, {
+      companyId: session.companyId,
+      actorUserId: session.userId,
+      action: "customer_site.deleted",
+      entityType: "customer_site",
+      entityId: id,
+      summary: `${previous.code} ${previous.name} 사업장 삭제`,
+      beforeData: previous,
+      afterData: { is_active: false },
+    });
+  });
+}
+
 export function createCustomerSite(session: SessionContext, input: CustomerSiteInput) {
   const id = randomUUID();
   return withCompany(session.companyId, async (tx) => {
@@ -63,7 +205,7 @@ export function createCustomerSite(session: SessionContext, input: CustomerSiteI
          (id, company_id, counterparty_id, code, name, address, contact_name,
           contact_phone, contact_email, timezone)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-      [id, session.companyId, input.counterpartyId, input.code, input.name, input.address || null, input.contactName || null, input.contactPhone || null, input.contactEmail || null, input.timezone],
+      [id, session.companyId, input.counterpartyId, input.code.trim().toUpperCase(), input.name, input.address || null, input.contactName || null, input.contactPhone || null, input.contactEmail || null, input.timezone],
     );
     await writeAudit(tx, {
       companyId: session.companyId,

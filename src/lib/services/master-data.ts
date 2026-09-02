@@ -12,6 +12,7 @@ export type CounterpartyRow = {
   representative_name: string | null;
   email: string | null;
   phone: string | null;
+  address: string | null;
   payment_terms_days: number;
   credit_limit: string;
   is_active: boolean;
@@ -42,7 +43,7 @@ export type WarehouseRow = {
 export function listCounterparties(companyId: string) {
   return withCompany(companyId, async (tx) => {
     const result = await tx.query<CounterpartyRow>(
-      `SELECT id, code, kind, name, business_number, representative_name, email, phone,
+      `SELECT id, code, kind, name, business_number, representative_name, email, phone, address,
               payment_terms_days, credit_limit::text, is_active
        FROM counterparties
        ORDER BY is_active DESC, name ASC`,
@@ -97,7 +98,7 @@ export function createCounterparty(session: SessionContext, input: CounterpartyI
         id,
         session.companyId,
         input.kind,
-        input.code,
+        input.code.trim().toUpperCase(),
         input.name,
         input.businessNumber || null,
         input.representativeName || null,
@@ -118,6 +119,137 @@ export function createCounterparty(session: SessionContext, input: CounterpartyI
       afterData: { code: input.code, kind: input.kind, name: input.name },
     });
     return id;
+  });
+}
+
+function emptyToNull(value?: string) {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
+const counterpartySelect = `id, code, kind, name, business_number, representative_name, email, phone, address,
+            payment_terms_days, credit_limit::text, is_active`;
+
+export function getCounterparty(companyId: string, id: string) {
+  return withCompany(companyId, async (tx) => {
+    const result = await tx.query<CounterpartyRow>(
+      `SELECT ${counterpartySelect} FROM counterparties WHERE id = $1`,
+      [id],
+    );
+    return result.rows[0] ?? null;
+  });
+}
+
+export function updateCounterparty(session: SessionContext, id: string, input: CounterpartyInput) {
+  return withCompany(session.companyId, async (tx) => {
+    const beforeResult = await tx.query<CounterpartyRow>(
+      `SELECT ${counterpartySelect} FROM counterparties WHERE id = $1`,
+      [id],
+    );
+    const before = beforeResult.rows[0];
+    if (!before) throw new Error("Counterparty not found");
+    const losesCustomerCapability = (before.kind === "customer" || before.kind === "both")
+      && input.kind === "supplier";
+    if (losesCustomerCapability) {
+      const linked = await tx.query<{ sites: string; assets: string; cases: string }>(
+        `SELECT
+           (SELECT count(*)::text FROM customer_sites WHERE company_id = $1 AND counterparty_id = $2) AS sites,
+           (SELECT count(*)::text FROM assets WHERE company_id = $1 AND counterparty_id = $2) AS assets,
+           (SELECT count(*)::text FROM service_cases WHERE company_id = $1 AND counterparty_id = $2) AS cases`,
+        [session.companyId, id],
+      );
+      const counts = linked.rows[0]!;
+      if (Number(counts.sites) > 0 || Number(counts.assets) > 0 || Number(counts.cases) > 0) {
+        throw new Error("Counterparty still has customer records");
+      }
+    }
+    const updated = await tx.query<CounterpartyRow>(
+      `UPDATE counterparties
+          SET kind = $2,
+              code = $3,
+              name = $4,
+              business_number = $5,
+              representative_name = $6,
+              email = $7,
+              phone = $8,
+              address = $9,
+              payment_terms_days = $10,
+              credit_limit = $11,
+              is_active = true,
+              version = version + 1
+        WHERE id = $1
+        RETURNING ${counterpartySelect}`,
+      [
+        id,
+        input.kind,
+        input.code.trim().toUpperCase(),
+        input.name,
+        emptyToNull(input.businessNumber),
+        emptyToNull(input.representativeName),
+        emptyToNull(input.email),
+        emptyToNull(input.phone),
+        emptyToNull(input.address),
+        input.paymentTermsDays,
+        input.creditLimit,
+      ],
+    );
+    const after = updated.rows[0];
+    if (!after) throw new Error("Counterparty not found");
+    await writeAudit(tx, {
+      companyId: session.companyId,
+      actorUserId: session.userId,
+      action: "counterparty.updated",
+      entityType: "counterparty",
+      entityId: id,
+      summary: `${after.code} ${after.name} 거래처 수정`,
+      beforeData: before,
+      afterData: after,
+    });
+    return after;
+  });
+}
+
+export function deleteCounterparty(session: SessionContext, id: string) {
+  return withCompany(session.companyId, async (tx) => {
+    const beforeResult = await tx.query<CounterpartyRow>(
+      `SELECT ${counterpartySelect} FROM counterparties WHERE id = $1`,
+      [id],
+    );
+    const before = beforeResult.rows[0];
+    if (!before) throw new Error("Counterparty not found");
+    if (!before.is_active) throw new Error("Counterparty already inactive");
+    const linked = await tx.query<{ sites: string; assets: string; documents: string; cases: string }>(
+      `SELECT
+         (SELECT count(*)::text FROM customer_sites WHERE company_id = $1 AND counterparty_id = $2 AND is_active = true) AS sites,
+         (SELECT count(*)::text FROM assets WHERE company_id = $1 AND counterparty_id = $2 AND status <> 'retired') AS assets,
+         (SELECT count(*)::text FROM documents WHERE company_id = $1 AND counterparty_id = $2 AND status <> 'cancelled') AS documents,
+         (SELECT count(*)::text FROM service_cases WHERE company_id = $1 AND counterparty_id = $2 AND status IN ('open', 'in_progress', 'waiting')) AS cases`,
+      [session.companyId, id],
+    );
+    const counts = linked.rows[0]!;
+    if (Number(counts.assets) > 0) throw new Error("Counterparty has linked assets");
+    if (Number(counts.sites) > 0) throw new Error("Counterparty has linked sites");
+    if (Number(counts.documents) > 0) throw new Error("Counterparty has linked documents");
+    if (Number(counts.cases) > 0) throw new Error("Counterparty has linked cases");
+    const deactivated = await tx.query<{ id: string }>(
+      `UPDATE counterparties
+          SET is_active = false,
+              version = version + 1
+        WHERE id = $1 AND is_active = true
+        RETURNING id`,
+      [id],
+    );
+    if (!deactivated.rows[0]) throw new Error("Counterparty already inactive");
+    await writeAudit(tx, {
+      companyId: session.companyId,
+      actorUserId: session.userId,
+      action: "counterparty.deleted",
+      entityType: "counterparty",
+      entityId: id,
+      summary: `${before.code} ${before.name} 거래처 삭제`,
+      beforeData: before,
+      afterData: { is_active: false },
+    });
   });
 }
 

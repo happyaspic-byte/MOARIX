@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, LifeBuoy, MapPinned, Server, ShieldAlert } from "lucide-react";
+import { DrawerCloseButton } from "@/components/drawer-close-button";
 import { EmptyState } from "@/components/empty-state";
 import { MetricCard } from "@/components/metric-card";
 import { PageHeader } from "@/components/page-header";
@@ -10,7 +11,11 @@ import { requirePermission } from "@/lib/auth/current";
 import { assetSupportRiskLabels, formatAssetSupportRisk, getAssetSupportRisk } from "@/lib/domain/asset-support-risk";
 import { dateInTimeZone } from "@/lib/domain/company-date";
 import { formatMoney } from "@/lib/domain/money";
+import { hasPermission } from "@/lib/security/permissions";
 import { getCustomer360 } from "@/lib/services/customer-360";
+import { listCounterparties } from "@/lib/services/master-data";
+import { CounterpartyForm, DeleteCounterpartyForm } from "../counterparty-form";
+import { DeleteSiteForm, SiteForm } from "../../sites/site-form";
 
 export const metadata: Metadata = { title: "고객 360" };
 export const dynamic = "force-dynamic";
@@ -33,6 +38,9 @@ export default async function Customer360Page({ params }: { params: Promise<{ co
   if (!workspace) notFound();
 
   const { customer, sites, assets, cases, inspections } = workspace;
+  const canEditCustomer = hasPermission(session.role, "master:write");
+  const canEditSite = hasPermission(session.role, "assets:write");
+  const counterparties = canEditSite ? await listCounterparties(session.companyId) : [];
   const today = dateInTimeZone(session.companyTimezone);
   const assetsWithRisk = assets.map((asset) => ({
     asset,
@@ -52,7 +60,7 @@ export default async function Customer360Page({ params }: { params: Promise<{ co
       eyebrow={`CUSTOMER 360 · ${customer.code}`}
       title={customer.name}
       description={`${kindLabels[customer.kind]} · 사업장, Stratus 자산, 지원 위험, 서비스 케이스와 점검을 한 화면에서 확인합니다.`}
-      actions={<><Link className="button" href="/counterparties"><ArrowLeft size={17} />거래처 목록</Link><Link className="button" href="/sites">사업장 디렉터리</Link><Link className="button primary" href="/assets">자산 운영 큐</Link></>}
+      actions={<><Link className="button" href="/counterparties"><ArrowLeft size={17} />거래처 목록</Link><Link className="button" href="/sites">사업장 디렉터리</Link><Link className="button primary" href="/assets">자산 운영 큐</Link>{canEditCustomer ? <details className="create-panel"><summary className="button">고객 수정</summary><div className="create-drawer"><div className="drawer-head"><div><h2>{customer.name} 수정</h2><p>고객사 코드, 담당자, 연락처를 갱신합니다. 비활성 고객을 저장하면 다시 활성화됩니다.</p></div><DrawerCloseButton /></div><CounterpartyForm initial={{ ...customer, address: customer.address }} /></div></details> : null}{canEditCustomer && customer.is_active ? <DeleteCounterpartyForm id={customer.id} name={customer.name} /> : null}</>}
     />
 
     <section className="metric-grid" aria-label="고객 운영 요약">
@@ -64,7 +72,7 @@ export default async function Customer360Page({ params }: { params: Promise<{ co
 
     <div className="section-grid">
       <section className="card span-8">
-        <header className="card-header"><div><h2>고객 기본정보</h2><p>계약·지원 업무에서 사용하는 거래처 기준정보</p></div><StatusBadge status={customer.is_active ? "active" : "retired"} /></header>
+        <header className="card-header"><div><h2>고객 기본정보</h2><p>계약·지원 업무에서 사용하는 거래처 기준정보</p></div><div className="row-actions"><StatusBadge status={customer.is_active ? "active" : "retired"} /></div></header>
         <dl className="asset-fact-grid">
           <div><dt>고객 코드·유형</dt><dd>{customer.code}<small>{kindLabels[customer.kind]}</small></dd></div>
           <div><dt>사업자번호</dt><dd>{customer.business_number ?? "—"}<small>대표 {customer.representative_name ?? "미등록"}</small></dd></div>
@@ -82,7 +90,7 @@ export default async function Customer360Page({ params }: { params: Promise<{ co
 
     <section className="card case-section">
       <header className="card-header"><div><h2>사업장</h2><p>{sites.length}곳 · 자산과 진행 케이스 연결 현황</p></div></header>
-      {sites.length === 0 ? <EmptyState title="등록된 사업장이 없습니다." /> : <div className="table-wrap"><table className="data-table"><caption className="sr-only">고객 사업장</caption><thead><tr><th>사업장·코드</th><th>주소</th><th>고객 담당자</th><th>시간대</th><th>운영 자산</th><th>진행 케이스</th></tr></thead><tbody>{sites.map((site) => <tr key={site.id}><td><div className="table-title"><strong>{site.name}</strong><small>{site.code} · {site.is_active ? "운영" : "비활성"}</small></div></td><td>{site.address ?? "—"}</td><td><div className="table-title"><strong>{site.contact_name ?? "—"}</strong><small>{site.contact_phone ?? site.contact_email ?? "연락처 미등록"}</small></div></td><td>{site.timezone}</td><td>{site.asset_count}대</td><td>{site.open_case_count}건</td></tr>)}</tbody></table></div>}
+      {sites.length === 0 ? <EmptyState title="등록된 사업장이 없습니다." /> : <div className="table-wrap"><table className="data-table"><caption className="sr-only">고객 사업장</caption><thead><tr><th>사업장·코드</th><th>주소</th><th>고객 담당자</th><th>시간대</th><th>운영 자산</th><th>진행 케이스</th>{canEditSite ? <th>관리</th> : null}</tr></thead><tbody>{sites.map((site) => <tr key={site.id}><td><div className="table-title"><strong>{site.name}</strong><small>{site.code} · {site.is_active ? "운영" : "비활성"}</small></div></td><td>{site.address ?? "—"}</td><td><div className="table-title"><strong>{site.contact_name ?? "—"}</strong><small>{site.contact_phone ?? site.contact_email ?? "연락처 미등록"}</small></div></td><td>{site.timezone}</td><td>{site.asset_count}대</td><td>{site.open_case_count}건</td>{canEditSite ? <td><div className="row-actions"><details className="create-panel"><summary className="button small">수정</summary><div className="create-drawer"><div className="drawer-head"><div><h2>{site.name} 수정</h2><p>사업장 위치와 고객 담당자를 갱신합니다.</p></div><DrawerCloseButton /></div><SiteForm counterparties={counterparties} initial={{ id: site.id, counterparty_id: customer.id, counterparty_name: customer.name, code: site.code, name: site.name, address: site.address, contact_name: site.contact_name, contact_phone: site.contact_phone, contact_email: site.contact_email, timezone: site.timezone, asset_count: String(site.asset_count), open_case_count: String(site.open_case_count) }} /></div></details>{site.is_active ? <DeleteSiteForm id={site.id} name={site.name} /> : null}</div></td> : null}</tr>)}</tbody></table></div>}
     </section>
 
     <section className="card case-section">
