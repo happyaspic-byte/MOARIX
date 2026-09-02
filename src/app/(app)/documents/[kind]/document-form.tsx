@@ -5,6 +5,7 @@ import { FormMessage, initialFormState } from "@/components/form-message";
 import { SubmitButton } from "@/components/submit-button";
 import type { CounterpartyRow, ItemRow, WarehouseRow } from "@/lib/services/master-data";
 import type { DocumentKind } from "@/lib/services/documents";
+import { createClientKey } from "@/lib/client-key";
 import { createDocumentAction, updateDraftDocumentAction } from "./actions";
 
 type LineDraft = {
@@ -28,7 +29,7 @@ export type DocumentFormInitial = {
 };
 
 function emptyLine(): LineDraft {
-  return { key: crypto.randomUUID(), itemId: "", quantity: "1", unitPrice: "0", discountRate: "0", taxRate: "10" };
+  return { key: createClientKey(), itemId: "", quantity: "1", unitPrice: "0", discountRate: "0", taxRate: "10" };
 }
 
 export function DocumentForm({
