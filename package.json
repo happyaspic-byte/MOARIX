@@ -49,16 +49,16 @@
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",
-    "@playwright/test": "^1.62.1",
-    "@types/node": "^26.2.0",
+    "@playwright/test": "^1.63.0",
+    "@types/node": "^26.5.1",
     "@types/pg": "^8.23.1",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.5",
-    "@vitest/coverage-v8": "^4.1.11",
-    "eslint": "9.39.5",
-    "eslint-config-next": "^16.3.2",
-    "tsx": "^4.23.12",
-    "typescript": "6.0.3",
-    "vitest": "^4.1.11"
+    "@vitest/coverage-v8": "^5.0.0",
+    "eslint": "10.10.0",
+    "eslint-config-next": "^16.3.4",
+    "tsx": "^4.23.13",
+    "typescript": "7.0.2",
+    "vitest": "^5.0.0"
   }
 }
